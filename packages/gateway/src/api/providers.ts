@@ -11,8 +11,6 @@ app.get('/', async (c) => {
   return c.json(
     rows.map((r) => ({
       ...r,
-      apiKey: r.apiKey ? maskKey(r.apiKey) : '',
-      accessToken: r.accessToken ? maskKey(r.accessToken) : null,
       blackGroupMatch: r.blackGroupMatch ? JSON.parse(r.blackGroupMatch) : [],
     })),
   )
@@ -44,7 +42,7 @@ app.put('/:id', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.json()
 
-  const result = await db
+  await db
     .update(schema.providers)
     .set({
       type: body.type,
@@ -104,10 +102,5 @@ app.get('/:id/sync-history', async (c) => {
     })),
   )
 })
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return '***'
-  return key.slice(0, 8) + '...' + key.slice(-4)
-}
 
 export default app

@@ -106,6 +106,7 @@ sqlite.exec(`
 const migrations = [
   `ALTER TABLE model_deployments ADD COLUMN api_key TEXT`,
   `ALTER TABLE providers ALTER COLUMN api_key DROP NOT NULL`, // SQLite ignores this but harmless
+  `DELETE FROM model_deployments WHERE status = 'stale'`,
 ]
 
 for (const sql of migrations) {

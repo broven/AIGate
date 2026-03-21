@@ -1,13 +1,12 @@
 {
   "name": "aigate",
   "private": true,
-  "workspaces": ["packages/*"],
   "scripts": {
-    "dev": "bun run --filter '*' dev",
-    "dev:gateway": "bun run --filter gateway dev",
-    "dev:dashboard": "bun run --filter dashboard dev",
-    "build": "bun run --filter dashboard build",
-    "db:generate": "bun run --filter gateway db:generate",
-    "db:migrate": "bun run --filter gateway db:migrate"
+    "dev": "pnpm --filter './packages/*' --parallel run dev",
+    "dev:gateway": "pnpm --filter gateway dev",
+    "dev:dashboard": "pnpm --filter dashboard dev",
+    "build": "pnpm --filter dashboard build",
+    "db:generate": "pnpm --filter gateway db:generate",
+    "db:migrate": "pnpm --filter gateway db:migrate"
   }
 }

@@ -48,14 +48,37 @@ function normalizeYunwuPricing(raw: YunwuPricingResponse): NewAPIPricingResponse
     group_ratio[groupName] = group.GroupRatio ?? 1
   }
 
+  // Collect all model names from both model_info AND ModelPrice in each group
+  // (some models only appear in ModelPrice, not in model_info)
+  const allModels = new Set<string>(Object.keys(model_info))
+  const modelGroupMembership = new Map<string, string[]>()
+
+  // Build group membership from group_special first
+  for (const [modelName, groups] of Object.entries(group_special)) {
+    modelGroupMembership.set(modelName, [...groups])
+  }
+
+  // Also discover models that only exist in ModelPrice
+  for (const [groupName, group] of Object.entries(model_group)) {
+    for (const modelName of Object.keys(group.ModelPrice || {})) {
+      allModels.add(modelName)
+      if (!modelGroupMembership.has(modelName)) {
+        modelGroupMembership.set(modelName, [])
+      }
+      const groups = modelGroupMembership.get(modelName)!
+      if (!groups.includes(groupName)) {
+        groups.push(groupName)
+      }
+    }
+  }
+
   // Build per-model entries
   const data: NewAPIPricingEntry[] = []
-  for (const [modelName, info] of Object.entries(model_info)) {
-    const enableGroups = group_special[modelName] || []
+  for (const modelName of allModels) {
+    const enableGroups = modelGroupMembership.get(modelName) || []
     const completionRatio = model_completion_ratio[modelName] ?? 1
 
     // Find the best model_price from model_group entries
-    // Use the first group that has a ModelPrice entry for this model
     let modelPrice = 0
     for (const groupName of enableGroups) {
       const grp = model_group[groupName]
@@ -67,7 +90,7 @@ function normalizeYunwuPricing(raw: YunwuPricingResponse): NewAPIPricingResponse
 
     data.push({
       model_name: modelName,
-      model_ratio: 0, // yunwu uses explicit model_price per group
+      model_ratio: 0,
       model_price: modelPrice,
       completion_ratio: completionRatio,
       enable_groups: enableGroups,

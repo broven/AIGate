@@ -5,9 +5,7 @@ import { sendToOpenAICompatible, parseOpenAIResponse } from '../adapters/outboun
 import {
   isInCooldown,
   enterCooldown,
-  enterProviderCooldown,
-  getProvidersInCooldown,
-  liftExpiredCooldowns,
+  liftCooldown,
 } from './cooldown'
 import { formatOpenAIStreamChunk } from '../adapters/inbound/openai'
 
@@ -121,13 +119,12 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
   // Sort by price
   const sorted = [...allDeployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
 
-  // Phase 1: Try non-cooldown providers
-  const cooldownProviders = getProvidersInCooldown(req.model)
-  const available = sorted.filter((d) => !cooldownProviders.has(d.providerId))
-  const inCooldown = sorted.filter((d) => cooldownProviders.has(d.providerId))
+  // Phase 1: Try non-cooldown deployments
+  const available = sorted.filter((d) => !isInCooldown(d.deploymentId))
+  const cooledDown = sorted.filter((d) => isInCooldown(d.deploymentId))
 
-  // Log skipped providers
-  for (const d of inCooldown) {
+  // Log skipped deployments
+  for (const d of cooledDown) {
     attempts.push({
       provider: d.providerId,
       deploymentId: d.deploymentId,
@@ -137,9 +134,9 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
     })
   }
 
-  const failedThisCycle = new Set<string>()
+  const failedDeployments = new Set<string>()
 
-  // Try available providers
+  // Try available deployments
   for (const deployment of available) {
     const result = await tryDeployment(req, deployment)
     attempts.push(result.attempt)
@@ -154,13 +151,13 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
         maxPrice,
       }
     }
-    failedThisCycle.add(deployment.providerId)
+    failedDeployments.add(deployment.deploymentId)
   }
 
-  // Phase 2: Lift prior cooldowns and retry previously-excluded providers
-  for (const deployment of inCooldown) {
-    if (failedThisCycle.has(deployment.providerId)) continue
-    liftExpiredCooldowns(deployment.providerId, req.model)
+  // Phase 2: Lift prior cooldowns and retry previously-excluded deployments
+  for (const deployment of cooledDown) {
+    if (failedDeployments.has(deployment.deploymentId)) continue
+    liftCooldown(deployment.deploymentId)
 
     const result = await tryDeployment(req, deployment)
     // Replace the skipped_cooldown entry
@@ -233,18 +230,12 @@ async function tryDeployment(
         }
       }
 
-      // Auth errors: cooldown entire provider
-      if (errorType === 'auth') {
-        enterProviderCooldown(deployment.providerId)
-      } else if (errorType === 'rate_limit') {
+      // All non-client errors: cooldown this deployment
+      if (errorType === 'rate_limit') {
         const retryAfter = parseInt(upstreamResponse.headers.get('retry-after') || '', 10)
-        enterCooldown(
-          deployment.providerId,
-          req.model,
-          isNaN(retryAfter) ? undefined : retryAfter,
-        )
+        enterCooldown(deployment.deploymentId, isNaN(retryAfter) ? undefined : retryAfter)
       } else {
-        enterCooldown(deployment.providerId, req.model)
+        enterCooldown(deployment.deploymentId)
       }
 
       return {
@@ -292,7 +283,7 @@ async function tryDeployment(
     }
   } catch (error) {
     const latencyMs = Date.now() - attemptStart
-    enterCooldown(deployment.providerId, req.model)
+    enterCooldown(deployment.deploymentId)
 
     return {
       attempt: {
