@@ -438,3 +438,64 @@ tr:last-child td {
 .badge.red { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
 .badge.yellow { background: rgba(234, 179, 8, 0.15); color: var(--accent-yellow); }
 .badge.blue { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 56px;
+    overflow: hidden;
+  }
+
+  .sidebar-logo {
+    padding: 0 8px 12px;
+  }
+
+  .sidebar-logo h1 {
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sidebar-logo span {
+    display: none;
+  }
+
+  .sidebar nav {
+    padding: 0 4px;
+  }
+
+  .nav-link {
+    padding: 8px;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .nav-link svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .main-content {
+    margin-left: 56px;
+    padding: 16px;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .stat-card .value {
+    font-size: 18px;
+  }
+
+  .table-container {
+    overflow-x: auto;
+  }
+
+  .modal {
+    width: calc(100vw - 32px);
+    max-height: 90vh;
+  }
+}
