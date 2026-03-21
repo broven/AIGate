@@ -19,7 +19,7 @@ sqlite.exec(`
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL CHECK(type IN ('newapi', 'openai-compatible')),
     endpoint TEXT NOT NULL,
-    api_key TEXT NOT NULL,
+    api_key TEXT DEFAULT '',
     cost_multiplier REAL NOT NULL DEFAULT 1.0,
     new_api_user_id INTEGER,
     access_token TEXT,

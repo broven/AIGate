@@ -11,7 +11,7 @@ app.get('/', async (c) => {
   return c.json(
     rows.map((r) => ({
       ...r,
-      apiKey: maskKey(r.apiKey),
+      apiKey: r.apiKey ? maskKey(r.apiKey) : '',
       accessToken: r.accessToken ? maskKey(r.accessToken) : null,
       blackGroupMatch: r.blackGroupMatch ? JSON.parse(r.blackGroupMatch) : [],
     })),
@@ -27,7 +27,7 @@ app.post('/', async (c) => {
     id,
     type: body.type,
     endpoint: body.endpoint.replace(/\/$/, ''),
-    apiKey: body.apiKey,
+    apiKey: body.apiKey || '',
     costMultiplier: body.costMultiplier ?? 1.0,
     newApiUserId: body.newApiUserId ?? null,
     accessToken: body.accessToken ?? null,
@@ -49,7 +49,7 @@ app.put('/:id', async (c) => {
     .set({
       type: body.type,
       endpoint: body.endpoint.replace(/\/$/, ''),
-      apiKey: body.apiKey,
+      apiKey: body.apiKey || '',
       costMultiplier: body.costMultiplier ?? 1.0,
       newApiUserId: body.newApiUserId ?? null,
       accessToken: body.accessToken ?? null,

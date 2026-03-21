@@ -5,7 +5,7 @@ export const providers = sqliteTable('providers', {
   id: text('id').primaryKey(),
   type: text('type', { enum: ['newapi', 'openai-compatible'] }).notNull(),
   endpoint: text('endpoint').notNull(),
-  apiKey: text('api_key').notNull(),
+  apiKey: text('api_key').default(''),
   costMultiplier: real('cost_multiplier').notNull().default(1.0),
   newApiUserId: integer('new_api_user_id'),
   accessToken: text('access_token'),

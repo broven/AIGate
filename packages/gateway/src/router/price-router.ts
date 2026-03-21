@@ -51,6 +51,7 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       priceSource: schema.modelDeployments.priceSource,
       endpoint: schema.providers.endpoint,
       apiKey: schema.providers.apiKey,
+      accessToken: schema.providers.accessToken,
     })
     .from(schema.modelDeployments)
     .innerJoin(schema.providers, eq(schema.modelDeployments.providerId, schema.providers.id))
@@ -72,7 +73,7 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       priceInput: prices.input,
       priceOutput: prices.output,
       endpoint: r.endpoint,
-      apiKey: r.apiKey,
+      apiKey: r.accessToken || r.apiKey || '',
     }
   })
 }

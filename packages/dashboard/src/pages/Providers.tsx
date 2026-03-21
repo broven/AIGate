@@ -287,16 +287,18 @@ export default function Providers() {
                 />
               </div>
 
-              <div className="form-group">
-                <label>API Key{editingId ? ' (leave blank to keep current)' : ''}</label>
-                <input
-                  type="password"
-                  value={form.apiKey}
-                  onChange={(e) => updateField('apiKey', e.target.value)}
-                  placeholder={editingId ? '********' : 'sk-...'}
-                  required={!editingId}
-                />
-              </div>
+              {form.type === 'openai-compatible' && (
+                <div className="form-group">
+                  <label>API Key{editingId ? ' (leave blank to keep current)' : ''}</label>
+                  <input
+                    type="password"
+                    value={form.apiKey}
+                    onChange={(e) => updateField('apiKey', e.target.value)}
+                    placeholder={editingId ? '********' : 'sk-...'}
+                    required={!editingId}
+                  />
+                </div>
+              )}
 
               <div className="form-group">
                 <label>Cost Multiplier</label>
@@ -310,26 +312,39 @@ export default function Providers() {
               </div>
 
               {form.type === 'newapi' && (
+                <>
+                  <div className="form-group">
+                    <label>NewAPI User ID</label>
+                    <input
+                      type="text"
+                      value={form.newapiUserId}
+                      onChange={(e) => updateField('newapiUserId', e.target.value)}
+                      placeholder="User ID for NewAPI billing"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Access Token</label>
+                    <input
+                      type="password"
+                      value={form.accessToken}
+                      onChange={(e) => updateField('accessToken', e.target.value)}
+                      placeholder={editingId ? '(unchanged)' : 'Access token for authentication'}
+                    />
+                  </div>
+                </>
+              )}
+
+              {form.type === 'openai-compatible' && (
                 <div className="form-group">
-                  <label>NewAPI User ID</label>
+                  <label>Access Token (optional override)</label>
                   <input
-                    type="text"
-                    value={form.newapiUserId}
-                    onChange={(e) => updateField('newapiUserId', e.target.value)}
-                    placeholder="User ID for NewAPI billing"
+                    type="password"
+                    value={form.accessToken}
+                    onChange={(e) => updateField('accessToken', e.target.value)}
+                    placeholder={editingId ? '(unchanged)' : 'Optional'}
                   />
                 </div>
               )}
-
-              <div className="form-group">
-                <label>Access Token</label>
-                <input
-                  type="password"
-                  value={form.accessToken}
-                  onChange={(e) => updateField('accessToken', e.target.value)}
-                  placeholder={editingId ? '(unchanged)' : 'Optional access token'}
-                />
-              </div>
 
               <div className="form-group">
                 <label>Black Group Match (comma-separated)</label>

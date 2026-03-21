@@ -17,7 +17,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
   if (provider.type === 'newapi') {
     syncResult = await syncNewAPIProvider(
       provider.endpoint,
-      provider.apiKey,
+      provider.apiKey || '',
       provider.costMultiplier,
       blackGroupMatch,
       provider.accessToken ?? undefined,
@@ -25,7 +25,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
   } else {
     syncResult = await syncOpenAICompatibleProvider(
       provider.endpoint,
-      provider.apiKey,
+      provider.apiKey || '',
       provider.costMultiplier,
     )
   }
