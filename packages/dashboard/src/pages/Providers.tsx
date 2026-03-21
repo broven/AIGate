@@ -101,7 +101,7 @@ export default function Providers() {
         syncIntervalMinutes: form.syncIntervalMinutes,
       }
       if (form.apiKey) payload.apiKey = form.apiKey
-      if (form.type === 'newapi' && form.newapiUserId) payload.newapiUserId = form.newapiUserId
+      if (form.type === 'newapi' && form.newapiUserId) payload.newApiUserId = parseInt(form.newapiUserId, 10) || null
       if (form.accessToken) payload.accessToken = form.accessToken
       if (form.blackGroupMatch.trim()) {
         payload.blackGroupMatch = form.blackGroupMatch.split(',').map((s) => s.trim()).filter(Boolean)
