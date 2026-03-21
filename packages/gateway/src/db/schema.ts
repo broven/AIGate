@@ -30,6 +30,7 @@ export const modelDeployments = sqliteTable('model_deployments', {
   canonical: text('canonical').notNull(),
   upstream: text('upstream').notNull(),
   groupName: text('group_name'),
+  apiKey: text('api_key'), // Per-group token for NewAPI deployments
   priceInput: real('price_input'),
   priceOutput: real('price_output'),
   priceSource: text('price_source', {

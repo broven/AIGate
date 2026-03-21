@@ -44,6 +44,7 @@ sqlite.exec(`
     canonical TEXT NOT NULL,
     upstream TEXT NOT NULL,
     group_name TEXT,
+    api_key TEXT,
     price_input REAL,
     price_output REAL,
     price_source TEXT NOT NULL DEFAULT 'unknown' CHECK(price_source IN ('provider_api', 'models_dev', 'manual', 'unknown')),

@@ -21,6 +21,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
       provider.costMultiplier,
       blackGroupMatch,
       provider.accessToken ?? undefined,
+      provider.newApiUserId ?? undefined,
     )
   } else {
     syncResult = await syncOpenAICompatibleProvider(
@@ -55,6 +56,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
         .update(schema.modelDeployments)
         .set({
           upstream: model.upstream,
+          apiKey: model.apiKey,
           priceInput: model.priceInput,
           priceOutput: model.priceOutput,
           priceSource: model.priceSource,
@@ -70,6 +72,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
         canonical: model.canonical,
         upstream: model.upstream,
         groupName: model.groupName,
+        apiKey: model.apiKey,
         priceInput: model.priceInput,
         priceOutput: model.priceOutput,
         priceSource: model.priceSource,

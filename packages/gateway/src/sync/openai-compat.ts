@@ -74,6 +74,7 @@ export async function syncOpenAICompatibleProvider(
         canonical,
         upstream: model.id,
         groupName: null,
+        apiKey: null, // OpenAI-compatible uses provider-level key
         priceInput,
         priceOutput,
         priceSource,

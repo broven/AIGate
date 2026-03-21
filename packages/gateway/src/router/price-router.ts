@@ -50,8 +50,9 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       manualPriceOutput: schema.modelDeployments.manualPriceOutput,
       priceSource: schema.modelDeployments.priceSource,
       endpoint: schema.providers.endpoint,
-      apiKey: schema.providers.apiKey,
-      accessToken: schema.providers.accessToken,
+      providerApiKey: schema.providers.apiKey,
+      providerAccessToken: schema.providers.accessToken,
+      deploymentApiKey: schema.modelDeployments.apiKey,
     })
     .from(schema.modelDeployments)
     .innerJoin(schema.providers, eq(schema.modelDeployments.providerId, schema.providers.id))
@@ -73,7 +74,8 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       priceInput: prices.input,
       priceOutput: prices.output,
       endpoint: r.endpoint,
-      apiKey: r.accessToken || r.apiKey || '',
+      // Priority: deployment-specific key > provider access token > provider API key
+      apiKey: r.deploymentApiKey || r.providerAccessToken || r.providerApiKey || '',
     }
   })
 }
