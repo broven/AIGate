@@ -1,10 +1,18 @@
 // models.dev pricing fallback
 
-interface ModelsDevEntry {
+interface ModelsDevProvider {
+  id: string
   name: string
-  provider: string
-  input_price?: number  // $/1M tokens
-  output_price?: number // $/1M tokens
+  models: Record<string, ModelsDevModel>
+}
+
+interface ModelsDevModel {
+  id: string
+  name: string
+  cost?: {
+    input?: number   // $/1M tokens
+    output?: number  // $/1M tokens
+  }
 }
 
 let cache: Map<string, { input: number; output: number }> | null = null
@@ -23,25 +31,35 @@ export async function getModelsDevPricing(): Promise<Map<string, { input: number
     })
     if (!response.ok) throw new Error(`models.dev returned ${response.status}`)
 
-    const data = (await response.json()) as ModelsDevEntry[]
+    const data = (await response.json()) as Record<string, ModelsDevProvider>
     const map = new Map<string, { input: number; output: number }>()
 
-    for (const entry of data) {
-      if (entry.input_price !== undefined && entry.output_price !== undefined) {
-        // Key by lowercased name for fuzzy matching
-        map.set(entry.name.toLowerCase(), {
-          input: entry.input_price,
-          output: entry.output_price,
-        })
+    // Data is { [providerId]: { models: { [modelId]: { cost: { input, output } } } } }
+    for (const provider of Object.values(data)) {
+      if (!provider.models || typeof provider.models !== 'object') continue
+      for (const [modelId, model] of Object.entries(provider.models)) {
+        if (model.cost?.input !== undefined && model.cost?.output !== undefined) {
+          map.set(modelId.toLowerCase(), {
+            input: model.cost.input,
+            output: model.cost.output,
+          })
+          // Also store with provider prefix for broader matching
+          if (provider.id) {
+            map.set(`${provider.id}/${modelId}`.toLowerCase(), {
+              input: model.cost.input,
+              output: model.cost.output,
+            })
+          }
+        }
       }
     }
 
     cache = map
     cacheTimestamp = now
+    console.log(`[models.dev] Cached pricing for ${map.size} models`)
     return map
   } catch (error) {
-    console.warn('Failed to fetch models.dev pricing:', error)
-    // Return stale cache if available
+    console.warn('[models.dev] Failed to fetch pricing:', error instanceof Error ? error.message : error)
     return cache ?? new Map()
   }
 }
