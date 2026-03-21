@@ -102,5 +102,19 @@ sqlite.exec(`
   );
 `)
 
+// Migrations for existing databases
+const migrations = [
+  `ALTER TABLE model_deployments ADD COLUMN api_key TEXT`,
+  `ALTER TABLE providers ALTER COLUMN api_key DROP NOT NULL`, // SQLite ignores this but harmless
+]
+
+for (const sql of migrations) {
+  try {
+    sqlite.exec(sql)
+  } catch {
+    // Column already exists or migration already applied
+  }
+}
+
 console.log('Database migrated successfully')
 sqlite.close()
