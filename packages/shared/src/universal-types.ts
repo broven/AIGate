@@ -61,6 +61,7 @@ export interface UniversalResponse {
 export interface RouteAttempt {
   provider: string
   deploymentId: string
+  groupName?: string | null
   price: number
   status: 'success' | 'failed' | 'skipped_cooldown'
   error?: string

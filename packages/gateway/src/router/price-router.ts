@@ -131,6 +131,7 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
     attempts.push({
       provider: d.providerId,
       deploymentId: d.deploymentId,
+      groupName: d.groupName,
       price: d.effectivePrice,
       status: 'skipped_cooldown',
     })
@@ -223,6 +224,7 @@ async function tryDeployment(
           attempt: {
             provider: deployment.providerId,
             deploymentId: deployment.deploymentId,
+            groupName: deployment.groupName,
             price: deployment.effectivePrice,
             status: 'failed',
             error: `${upstreamResponse.status}: ${errorBody.slice(0, 200)}`,
@@ -249,6 +251,7 @@ async function tryDeployment(
         attempt: {
           provider: deployment.providerId,
           deploymentId: deployment.deploymentId,
+          groupName: deployment.groupName,
           price: deployment.effectivePrice,
           status: 'failed',
           error: `${upstreamResponse.status}: ${errorBody.slice(0, 200)}`,
@@ -263,6 +266,7 @@ async function tryDeployment(
         attempt: {
           provider: deployment.providerId,
           deploymentId: deployment.deploymentId,
+          groupName: deployment.groupName,
           price: deployment.effectivePrice,
           status: 'success',
           latencyMs,
@@ -279,6 +283,7 @@ async function tryDeployment(
       attempt: {
         provider: deployment.providerId,
         deploymentId: deployment.deploymentId,
+        groupName: deployment.groupName,
         price: deployment.effectivePrice,
         status: 'success',
         latencyMs,
@@ -293,6 +298,7 @@ async function tryDeployment(
       attempt: {
         provider: deployment.providerId,
         deploymentId: deployment.deploymentId,
+        groupName: deployment.groupName,
         price: deployment.effectivePrice,
         status: 'failed',
         error: error instanceof Error ? error.message : String(error),

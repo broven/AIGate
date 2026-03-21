@@ -2,6 +2,7 @@ import React from 'react'
 
 interface Attempt {
   provider: string
+  groupName?: string | null
   status: 'success' | 'failed' | 'skipped_cooldown'
   error?: string
   latencyMs?: number
@@ -19,7 +20,7 @@ export function FallbackChain({ attempts }: { attempts: Attempt[] }) {
             className={`attempt ${attempt.status}`}
             title={attempt.error || (attempt.latencyMs ? `${attempt.latencyMs}ms` : undefined)}
           >
-            {attempt.provider}
+            {attempt.groupName ? `${attempt.provider}-${attempt.groupName}` : attempt.provider}
             {attempt.status === 'success' && ' ✓'}
           </span>
         </React.Fragment>

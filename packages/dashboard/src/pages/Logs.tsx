@@ -207,7 +207,7 @@ function LogRow({ log, expanded, onToggle }: { log: LogEntry; expanded: boolean;
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Provider</th>
+                    <th>提供商ID</th>
                     <th>Status</th>
                     <th>Latency</th>
                     <th>Error</th>
@@ -217,7 +217,7 @@ function LogRow({ log, expanded, onToggle }: { log: LogEntry; expanded: boolean;
                   {log.attempts.map((attempt, i) => (
                     <tr key={i}>
                       <td className="mono">{i + 1}</td>
-                      <td className="mono">{attempt.provider}</td>
+                      <td className="mono">{attempt.groupName ? `${attempt.provider}-${attempt.groupName}` : attempt.provider}</td>
                       <td>
                         <span className={`badge ${attempt.status === 'success' ? 'green' : attempt.status === 'failed' ? 'red' : 'yellow'}`}>
                           {attempt.status}
