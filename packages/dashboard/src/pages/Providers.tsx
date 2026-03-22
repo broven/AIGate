@@ -107,7 +107,7 @@ export default function Providers() {
         type: form.type,
         apiFormat: form.apiFormat,
         endpoint: form.endpoint,
-        costMultiplier: parseFloat(form.costMultiplier) || 1,
+        costMultiplier: Number.isNaN(parseFloat(form.costMultiplier)) ? 1 : parseFloat(form.costMultiplier),
         syncEnabled: form.syncEnabled,
         syncIntervalMinutes: form.syncIntervalMinutes,
       }
