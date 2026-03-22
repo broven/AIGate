@@ -135,14 +135,28 @@ export const updateModelPrice = (deploymentId: string, priceInput: number | null
   })
 
 // Keys
-export const getKeys = () => request<Array<{ id: string; name: string; keyPrefix: string; createdAt: string }>>('/keys')
+export interface GatewayKey {
+  id: string
+  name: string
+  keyPlain: string
+  createdAt: string
+}
+
+export interface KeyUsage {
+  byModel: Array<{ model: string; requests: number; inputTokens: number; outputTokens: number; cost: number }>
+  byDay: Array<{ date: string; requests: number; cost: number }>
+}
+
+export const getKeys = () => request<GatewayKey[]>('/keys')
 export const createKey = (name: string) =>
-  request<{ id: string; name: string; key: string; keyPrefix: string }>('/keys', {
+  request<GatewayKey>('/keys', {
     method: 'POST',
     body: JSON.stringify({ name }),
   })
 export const deleteKey = (id: string) =>
   request<{ ok: boolean }>(`/keys/${id}`, { method: 'DELETE' })
+export const getKeyUsage = (id: string) =>
+  request<KeyUsage>(`/keys/${id}/usage`)
 
 // Health
 export const getHealth = () => request<{ status: string; timestamp: string }>('/health')
