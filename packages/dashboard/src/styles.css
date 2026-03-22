@@ -439,6 +439,96 @@ tr:last-child td {
 .badge.yellow { background: rgba(234, 179, 8, 0.15); color: var(--accent-yellow); }
 .badge.blue { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
 
+/* Login */
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.login-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  width: 360px;
+}
+
+.login-header {
+  margin-bottom: 24px;
+}
+
+.login-header h1 {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.login-header span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.login-field {
+  margin-bottom: 16px;
+}
+
+.login-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.login-field input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.login-field input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.login-error {
+  color: var(--accent-red);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.login-button {
+  width: 100%;
+  padding: 10px;
+  background: var(--accent-blue);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.login-button:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.login-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
   .sidebar {

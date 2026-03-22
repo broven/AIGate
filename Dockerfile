@@ -30,6 +30,7 @@ COPY --from=dashboard-build /app/packages/dashboard/dist packages/gateway/dashbo
 
 ENV HOST=0.0.0.0
 ENV PORT=3000
+ENV ADMIN_TOKEN=""
 EXPOSE 3000
 
 VOLUME /app/packages/gateway/data
