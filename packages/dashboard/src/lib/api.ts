@@ -51,6 +51,7 @@ export interface LogEntry {
 export interface Provider {
   id: string
   type: 'newapi' | 'openai-compatible'
+  apiFormat: 'openai' | 'claude' | 'gemini'
   endpoint: string
   apiKey: string
   costMultiplier: number

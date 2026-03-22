@@ -4,6 +4,7 @@ import { getProviders, createProvider, updateProvider, deleteProvider, syncProvi
 interface ProviderForm {
   id: string
   type: 'newapi' | 'openai-compatible'
+  apiFormat: 'openai' | 'claude' | 'gemini'
   endpoint: string
   apiKey: string
   costMultiplier: string
@@ -17,6 +18,7 @@ interface ProviderForm {
 const emptyForm: ProviderForm = {
   id: '',
   type: 'newapi',
+  apiFormat: 'openai',
   endpoint: '',
   apiKey: '',
   costMultiplier: '',
@@ -76,6 +78,7 @@ export default function Providers() {
     setForm({
       id: provider.id,
       type: provider.type,
+      apiFormat: provider.apiFormat ?? 'openai',
       endpoint: provider.endpoint,
       apiKey: '',
       costMultiplier: String(provider.costMultiplier ?? 1),
@@ -95,6 +98,7 @@ export default function Providers() {
     try {
       const payload: Record<string, unknown> = {
         type: form.type,
+        apiFormat: form.apiFormat,
         endpoint: form.endpoint,
         costMultiplier: parseFloat(form.costMultiplier) || 1,
         syncEnabled: form.syncEnabled,
@@ -277,6 +281,15 @@ export default function Providers() {
               </div>
 
               <div className="form-group">
+                <label>API Format</label>
+                <select value={form.apiFormat} onChange={(e) => updateField('apiFormat', e.target.value as ProviderForm['apiFormat'])}>
+                  <option value="openai">OpenAI</option>
+                  <option value="claude">Claude (Anthropic)</option>
+                  <option value="gemini">Gemini (Google)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
                 <label>Endpoint</label>
                 <input
                   type="url"
@@ -296,6 +309,7 @@ export default function Providers() {
                     onChange={(e) => updateField('apiKey', e.target.value)}
                     placeholder={editingId ? '********' : 'sk-...'}
                     required={!editingId}
+                    autoComplete="off"
                   />
                 </div>
               )}
@@ -329,6 +343,7 @@ export default function Providers() {
                       value={form.accessToken}
                       onChange={(e) => updateField('accessToken', e.target.value)}
                       placeholder={editingId ? '(unchanged)' : 'Access token for authentication'}
+                      autoComplete="off"
                     />
                   </div>
                 </>
@@ -342,6 +357,7 @@ export default function Providers() {
                     value={form.accessToken}
                     onChange={(e) => updateField('accessToken', e.target.value)}
                     placeholder={editingId ? '(unchanged)' : 'Optional'}
+                    autoComplete="off"
                   />
                 </div>
               )}

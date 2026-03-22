@@ -24,6 +24,7 @@ app.post('/', async (c) => {
   await db.insert(schema.providers).values({
     id,
     type: body.type,
+    apiFormat: body.apiFormat ?? 'openai',
     endpoint: body.endpoint.replace(/\/$/, ''),
     apiKey: body.apiKey || '',
     costMultiplier: body.costMultiplier ?? 1.0,
@@ -46,6 +47,7 @@ app.put('/:id', async (c) => {
     .update(schema.providers)
     .set({
       type: body.type,
+      apiFormat: body.apiFormat ?? 'openai',
       endpoint: body.endpoint.replace(/\/$/, ''),
       apiKey: body.apiKey || '',
       costMultiplier: body.costMultiplier ?? 1.0,

@@ -12,7 +12,7 @@ PORT="${WT_PORT:-${CONDUCTOR_PORT:-{{ branch | hash_port }}}}"
 # Append PORT to gateway .env (create if missing)
 grep -q '^PORT=' packages/gateway/.env 2>/dev/null && sed -i '' "s/^PORT=.*/PORT=$PORT/" packages/gateway/.env || echo "PORT=$PORT" >> packages/gateway/.env
 """
-deps = "bun install"
+deps = "pnpm install"
 
 [pre-remove]
 kill-server = """
