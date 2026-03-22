@@ -77,6 +77,7 @@ export default function Settings() {
   }
 
   const gatewayUrl = 'http://localhost:3000'
+  const version: string = (globalThis as any).__APP_VERSION__ ?? 'dev'
 
   return (
     <div>
@@ -218,6 +219,17 @@ export default function Settings() {
   }'`}
           </pre>
           <CopyButton text={`curl ${gatewayUrl}/v1/chat/completions \\\n  -H "Authorization: Bearer YOUR_GATEWAY_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "gpt-4o",\n    "messages": [{"role": "user", "content": "Hello!"}]\n  }'`} />
+        </div>
+
+        <div style={{ marginTop: 24 }}>
+          <label style={{ fontWeight: 600, display: 'block', marginBottom: 8 }}>Version</label>
+          <code className="mono" style={{
+            background: 'var(--color-bg)',
+            padding: '8px 12px',
+            borderRadius: 4,
+          }}>
+            {version}
+          </code>
         </div>
       </div>
 
