@@ -18,6 +18,7 @@ sqlite.exec(`
   CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL CHECK(type IN ('newapi', 'openai-compatible')),
+    api_format TEXT NOT NULL DEFAULT 'openai' CHECK(api_format IN ('openai', 'claude', 'gemini')),
     endpoint TEXT NOT NULL,
     api_key TEXT DEFAULT '',
     cost_multiplier REAL NOT NULL DEFAULT 1.0,
@@ -107,6 +108,7 @@ const migrations = [
   `ALTER TABLE model_deployments ADD COLUMN api_key TEXT`,
   `ALTER TABLE providers ALTER COLUMN api_key DROP NOT NULL`, // SQLite ignores this but harmless
   `DELETE FROM model_deployments WHERE status = 'stale'`,
+  `ALTER TABLE providers ADD COLUMN api_format TEXT NOT NULL DEFAULT 'openai'`,
 ]
 
 for (const sql of migrations) {
