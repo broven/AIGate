@@ -233,12 +233,16 @@ app.get('/*', async (c) => {
   const path = c.req.path === '/' ? '/index.html' : c.req.path
   const file = Bun.file(`./dashboard${path}`)
   if (await file.exists()) {
-    return new Response(file)
+    return new Response(file, {
+      headers: file.type ? { 'Content-Type': file.type } : undefined,
+    })
   }
   // SPA fallback
   const index = Bun.file('./dashboard/index.html')
   if (await index.exists()) {
-    return new Response(index)
+    return new Response(index, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
   }
   return c.json({ error: { message: 'Not found' } }, 404)
 })
