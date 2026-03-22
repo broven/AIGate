@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { getKeys, createKey, deleteKey, getKeyUsage } from '../lib/api'
 import type { GatewayKey, KeyUsage } from '../lib/api'
@@ -33,15 +33,29 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-function KeyUsagePanel({ keyId }: { keyId: string }) {
+function KeyUsagePanel({ keyId, onStats }: { keyId: string; onStats?: (stats: { requests: number; tokens: number; cost: number }) => void }) {
   const [usage, setUsage] = useState<KeyUsage | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    getKeyUsage(keyId).then(setUsage).finally(() => setLoading(false))
+    getKeyUsage(keyId)
+      .then((data) => {
+        setUsage(data)
+        if (onStats) {
+          const requests = data.byModel.reduce((s, m) => s + m.requests, 0)
+          const tokens = data.byModel.reduce((s, m) => s + m.inputTokens + m.outputTokens, 0)
+          const cost = data.byModel.reduce((s, m) => s + m.cost, 0)
+          onStats({ requests, tokens, cost })
+        }
+      })
+      .catch((e) => setError(e.message || 'Failed to load usage'))
+      .finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyId])
 
   if (loading) return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading usage...</div>
+  if (error) return <div style={{ padding: 16, color: 'var(--danger)' }}>Error: {error}</div>
   if (!usage || (usage.byModel.length === 0 && usage.byDay.length === 0)) {
     return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>No usage yet</div>
   }
@@ -128,28 +142,22 @@ export default function ApiKeys() {
   const [newKeyName, setNewKeyName] = useState('')
   const [creating, setCreating] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  // Aggregate usage stats per key
+  // Aggregate usage stats per key (populated on expand)
   const [keyStats, setKeyStats] = useState<Record<string, { requests: number; tokens: number; cost: number }>>({})
 
+  const handleKeyStats = useCallback((keyId: string) => (stats: { requests: number; tokens: number; cost: number }) => {
+    setKeyStats((prev) => ({ ...prev, [keyId]: stats }))
+  }, [])
+
   const fetchKeys = useCallback(async () => {
+    setError(null)
     try {
       const data = await getKeys()
       setKeys(data)
-      // Fetch usage stats for each key
-      const stats: Record<string, { requests: number; tokens: number; cost: number }> = {}
-      await Promise.all(data.map(async (k) => {
-        try {
-          const usage = await getKeyUsage(k.id)
-          const totalRequests = usage.byModel.reduce((sum, m) => sum + m.requests, 0)
-          const totalTokens = usage.byModel.reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0)
-          const totalCost = usage.byModel.reduce((sum, m) => sum + m.cost, 0)
-          stats[k.id] = { requests: totalRequests, tokens: totalTokens, cost: totalCost }
-        } catch {
-          stats[k.id] = { requests: 0, tokens: 0, cost: 0 }
-        }
-      }))
-      setKeyStats(stats)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load keys')
     } finally {
       setLoading(false)
     }
@@ -162,21 +170,29 @@ export default function ApiKeys() {
   const handleCreate = async () => {
     if (!newKeyName.trim()) return
     setCreating(true)
+    setError(null)
     try {
       await createKey(newKeyName.trim())
       setShowCreateModal(false)
       setNewKeyName('')
       await fetchKeys()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create key')
     } finally {
       setCreating(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    await deleteKey(id)
-    setDeleteConfirmId(null)
-    if (expandedId === id) setExpandedId(null)
-    await fetchKeys()
+    setError(null)
+    try {
+      await deleteKey(id)
+      setDeleteConfirmId(null)
+      if (expandedId === id) setExpandedId(null)
+      await fetchKeys()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete key')
+    }
   }
 
   return (
@@ -188,6 +204,12 @@ export default function ApiKeys() {
             Create Key
           </button>
         </div>
+
+        {error && (
+          <div style={{ padding: '8px 12px', marginBottom: 12, background: 'var(--danger-bg, #fee)', color: 'var(--danger, #c00)', borderRadius: 4, fontSize: 13 }}>
+            {error}
+          </div>
+        )}
 
         <div className="table-container">
           <table>
@@ -211,11 +233,10 @@ export default function ApiKeys() {
               ) : (
                 keys.map((key) => {
                   const isExpanded = expandedId === key.id
-                  const stats = keyStats[key.id] || { requests: 0, tokens: 0, cost: 0 }
+                  const stats = keyStats[key.id]
                   return (
-                    <>
+                    <Fragment key={key.id}>
                       <tr
-                        key={key.id}
                         style={{ cursor: 'pointer' }}
                         onClick={() => setExpandedId(isExpanded ? null : key.id)}
                       >
@@ -229,9 +250,9 @@ export default function ApiKeys() {
                             <CopyButton text={key.keyPlain} />
                           </span>
                         </td>
-                        <td>{stats.requests}</td>
-                        <td>{formatTokens(stats.tokens)}</td>
-                        <td>{formatCost(stats.cost)}</td>
+                        <td>{stats ? stats.requests : '–'}</td>
+                        <td>{stats ? formatTokens(stats.tokens) : '–'}</td>
+                        <td>{stats ? formatCost(stats.cost) : '–'}</td>
                         <td className="mono">{formatDate(key.createdAt)}</td>
                         <td onClick={(e) => e.stopPropagation()}>
                           {deleteConfirmId === key.id ? (
@@ -248,11 +269,11 @@ export default function ApiKeys() {
                       {isExpanded && (
                         <tr key={`${key.id}-usage`}>
                           <td colSpan={8} style={{ padding: 0, background: 'var(--bg-primary)' }}>
-                            <KeyUsagePanel keyId={key.id} />
+                            <KeyUsagePanel keyId={key.id} onStats={handleKeyStats(key.id)} />
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   )
                 })
               )}
