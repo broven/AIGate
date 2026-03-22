@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@aigate/shared": "workspace:*",
     "drizzle-orm": "^0.39.0",
+    "@musistudio/llms": "^1.0.53",
     "hono": "^4.7.0"
   },
   "devDependencies": {

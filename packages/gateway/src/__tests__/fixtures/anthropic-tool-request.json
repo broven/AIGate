@@ -1,0 +1,45 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "max_tokens": 1024,
+  "messages": [
+    {
+      "role": "user",
+      "content": "What's the weather in Tokyo?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_abc123",
+          "name": "get_weather",
+          "input": { "location": "Tokyo" }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_abc123",
+          "content": "{\"temperature\": 22, \"condition\": \"sunny\"}"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a location",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": { "type": "string", "description": "City name" }
+        },
+        "required": ["location"]
+      }
+    }
+  ],
+  "stream": false
+}

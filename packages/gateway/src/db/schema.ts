@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 export const providers = sqliteTable('providers', {
   id: text('id').primaryKey(),
   type: text('type', { enum: ['newapi', 'openai-compatible'] }).notNull(),
+  apiFormat: text('api_format', { enum: ['openai', 'claude', 'gemini'] }).notNull().default('openai'),
   endpoint: text('endpoint').notNull(),
   apiKey: text('api_key').default(''),
   costMultiplier: real('cost_multiplier').notNull().default(1.0),
