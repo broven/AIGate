@@ -20,20 +20,20 @@ Intelligent LLM API gateway with automatic provider fallback, price-based routin
 docker run -d \
   --name aigate \
   -p 3000:3000 \
+  -e ADMIN_TOKEN=your-secret-token \
   -v aigate-data:/app/packages/gateway/data \
   ghcr.io/broven/aigate:latest
 ```
 
-Open `http://localhost:3000` to access the dashboard.
+Open `http://localhost:3000` to access the dashboard and log in with your `ADMIN_TOKEN`.
 
-Custom port and database path:
+To use a different port, just change the port mapping:
 
 ```bash
 docker run -d \
   --name aigate \
-  -p 8080:8080 \
-  -e PORT=8080 \
-  -e DATABASE_URL=/app/packages/gateway/data/gateway.db \
+  -p 8080:3000 \
+  -e ADMIN_TOKEN=your-secret-token \
   -v aigate-data:/app/packages/gateway/data \
   ghcr.io/broven/aigate:latest
 ```
@@ -49,11 +49,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - PORT=3000              # Server port (default: 3000)
-      - HOST=0.0.0.0           # Bind address (default: 0.0.0.0 in Docker)
-      # - DATABASE_URL=/app/packages/gateway/data/aigate.db  # SQLite path (default)
+      - ADMIN_TOKEN=your-secret-token   # Required: dashboard login token
     volumes:
-      - aigate-data:/app/packages/gateway/data   # Persistent database storage
+      - aigate-data:/app/packages/gateway/data
 
 volumes:
   aigate-data:
@@ -74,8 +72,7 @@ All configuration is via environment variables. Everything has sensible defaults
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | Server port |
-| `HOST` | `0.0.0.0` (Docker) / `127.0.0.1` (local) | Bind address |
+| `ADMIN_TOKEN` | *(required)* | Token for dashboard authentication |
 | `DATABASE_URL` | `./data/aigate.db` | SQLite database path |
 
 Data is stored in a single SQLite file at the `DATABASE_URL` path. The database and tables are created automatically on first start. In Docker, this defaults to `/app/packages/gateway/data/aigate.db` — make sure to mount a volume at `/app/packages/gateway/data` to persist data.
