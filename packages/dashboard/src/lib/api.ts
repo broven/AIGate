@@ -126,8 +126,21 @@ export const syncProvider = (id: string) =>
 export const getSyncHistory = (id: string) =>
   request<Array<Record<string, unknown>>>(`/providers/${id}/sync-history`)
 
+// Model Preferences
+export interface ModelPreference {
+  canonical: string
+  preference: 'favorite' | 'blacklist'
+  updatedAt: string
+}
+
 // Models
 export const getModels = () => request<ModelDeployment[]>('/models')
+export const getModelPreferences = () => request<ModelPreference[]>('/models/preferences')
+export const setModelPreferences = (canonicals: string[], preference: 'favorite' | 'blacklist' | null) =>
+  request<{ ok: boolean }>('/models/preferences', {
+    method: 'PUT',
+    body: JSON.stringify({ canonicals, preference }),
+  })
 export const updateModelPrice = (deploymentId: string, priceInput: number | null, priceOutput: number | null) =>
   request<{ ok: boolean }>(`/models/${deploymentId}/price`, {
     method: 'PUT',

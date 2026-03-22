@@ -101,6 +101,12 @@ sqlite.exec(`
     total_saved REAL DEFAULT 0,
     PRIMARY KEY (date, gateway_key, model)
   );
+
+  CREATE TABLE IF NOT EXISTS model_preferences (
+    canonical TEXT PRIMARY KEY,
+    preference TEXT NOT NULL CHECK(preference IN ('favorite', 'blacklist')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `)
 
 // Migrations for existing databases
