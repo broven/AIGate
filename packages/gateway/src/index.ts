@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { gatewayAuth } from './middleware/auth'
+import { adminAuth } from './middleware/admin-auth'
+import authApi from './api/auth'
 import { parseOpenAIRequest, formatOpenAIResponse, formatOpenAIError } from './adapters/inbound/openai'
 import { routeRequest } from './router/price-router'
 import { logRequest } from './logging/request-logger'
@@ -14,13 +16,24 @@ import { startSyncScheduler } from './sync/engine'
 // Run migrations on startup
 import './db/migrate'
 
+// Require ADMIN_TOKEN to be set
+if (!process.env.ADMIN_TOKEN) {
+  console.error('\x1b[31m[ERROR] ADMIN_TOKEN environment variable is not set.\x1b[0m')
+  console.error('Set ADMIN_TOKEN to secure the dashboard:')
+  console.error('  ADMIN_TOKEN=your-secret-token bun run src/index.ts')
+  console.error('  docker run -e ADMIN_TOKEN=your-secret-token ...')
+  process.exit(1)
+}
+
 const app = new Hono()
 
 // Global middleware
 app.use('*', cors())
 app.use('*', logger())
 
-// Dashboard API (no gateway auth — local access only)
+// Dashboard API (protected by admin token)
+app.use('/api/*', adminAuth)
+app.route('/api/auth', authApi)
 app.route('/api', statsApi)
 app.route('/api/providers', providersApi)
 app.route('/api/keys', keysApi)
