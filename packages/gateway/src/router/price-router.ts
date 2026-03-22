@@ -39,6 +39,18 @@ function getEffectivePrice(d: {
 }
 
 async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
+  // Skip blacklisted models
+  const blacklisted = await db
+    .select({ canonical: schema.modelPreferences.canonical })
+    .from(schema.modelPreferences)
+    .where(
+      and(
+        eq(schema.modelPreferences.canonical, model),
+        eq(schema.modelPreferences.preference, 'blacklist'),
+      ),
+    )
+  if (blacklisted.length > 0) return []
+
   const rows = await db
     .select({
       deploymentId: schema.modelDeployments.deploymentId,
