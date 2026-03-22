@@ -89,3 +89,9 @@ export const dailyUsage = sqliteTable('daily_usage', {
 }, (table) => [
   primaryKey({ columns: [table.date, table.gatewayKey, table.model] }),
 ])
+
+export const modelPreferences = sqliteTable('model_preferences', {
+  canonical: text('canonical').primaryKey(),
+  preference: text('preference', { enum: ['favorite', 'blacklist'] }).notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
