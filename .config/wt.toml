@@ -1,0 +1,26 @@
+# Worktrunk Project Configuration
+
+[post-create]
+copy-env = """
+# env fallback: Worktrunk -> Conductor -> Superset
+ROOT="${WT_ROOT:-${CONDUCTOR_ROOT_PATH:-${SUPERSET_ROOT_PATH}}}"
+cp "$ROOT/packages/gateway/.env" packages/gateway/.env 2>/dev/null || echo 'No .env found, skipping'
+"""
+set-port = """
+# env fallback: Worktrunk -> Conductor -> Superset
+PORT="${WT_PORT:-${CONDUCTOR_PORT:-{{ branch | hash_port }}}}"
+# Append PORT to gateway .env (create if missing)
+grep -q '^PORT=' packages/gateway/.env 2>/dev/null && sed -i '' "s/^PORT=.*/PORT=$PORT/" packages/gateway/.env || echo "PORT=$PORT" >> packages/gateway/.env
+"""
+deps = "bun install"
+
+[pre-remove]
+kill-server = """
+PORT="${WT_PORT:-${CONDUCTOR_PORT:-{{ branch | hash_port }}}}"
+lsof -ti :$PORT -sTCP:LISTEN | xargs kill 2>/dev/null || true
+VITE_PORT=$((PORT + 1000))
+lsof -ti :$VITE_PORT -sTCP:LISTEN | xargs kill 2>/dev/null || true
+"""
+
+[list]
+url = "http://localhost:{{ branch | hash_port }}"

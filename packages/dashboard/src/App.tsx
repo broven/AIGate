@@ -1,4 +1,5 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
+import AuthGuard from './components/AuthGuard'
 import Overview from './pages/Overview'
 import Providers from './pages/Providers'
 import Models from './pages/Models'
@@ -59,17 +60,19 @@ function Sidebar() {
 
 export default function App() {
   return (
-    <div className="app-layout">
-      <Sidebar />
-      <main className="main-content">
-        <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/providers" element={<Providers />} />
-          <Route path="/models" element={<Models />} />
-          <Route path="/logs" element={<Logs />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </main>
-    </div>
+    <AuthGuard>
+      <div className="app-layout">
+        <Sidebar />
+        <main className="main-content">
+          <Routes>
+            <Route path="/" element={<Overview />} />
+            <Route path="/providers" element={<Providers />} />
+            <Route path="/models" element={<Models />} />
+            <Route path="/logs" element={<Logs />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </main>
+      </div>
+    </AuthGuard>
   )
 }

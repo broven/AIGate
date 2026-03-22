@@ -1,5 +1,9 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const gwEnv = loadEnv('', '../gateway', 'PORT')
+const gatewayPort = parseInt(gwEnv.PORT || process.env.PORT || '3000', 10)
+const vitePort = gatewayPort + 1000
 
 export default defineConfig({
   plugins: [react()],
@@ -7,10 +11,10 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || 'dev'),
   },
   server: {
-    port: parseInt(process.env.VITE_PORT || '5173'),
+    port: vitePort,
     proxy: {
       '/api': {
-        target: `http://localhost:${process.env.API_PORT || '3000'}`,
+        target: `http://localhost:${gatewayPort}`,
         changeOrigin: true,
       },
     },

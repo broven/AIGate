@@ -1,13 +1,22 @@
+import { getAdminToken, clearAdminToken } from '../components/AuthGuard'
+
 const BASE = '/api'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getAdminToken()
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
   })
+  if (res.status === 401) {
+    clearAdminToken()
+    window.location.reload()
+    throw new Error('Unauthorized')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: { message: res.statusText } }))
     throw new Error(err.error?.message || res.statusText)
