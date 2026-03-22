@@ -1,9 +1,9 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
-# Install dependencies using bun with npm-compatible lockfile
+# Install dependencies
 FROM base AS deps
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/gateway/package.json packages/gateway/
 COPY packages/dashboard/package.json packages/dashboard/
@@ -19,7 +19,7 @@ RUN cd packages/dashboard && APP_VERSION=${APP_VERSION} bun run build
 
 # Production
 FROM base AS production
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/gateway/package.json packages/gateway/
 RUN bun install --production

@@ -1,6 +1,7 @@
 {
   "name": "aigate",
   "private": true,
+  "workspaces": ["packages/*"],
   "scripts": {
     "dev": "pnpm --filter './packages/*' --parallel run dev",
     "dev:gateway": "pnpm --filter gateway dev",
