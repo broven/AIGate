@@ -4,13 +4,13 @@
 copy-env = """
 # env fallback: Worktrunk -> Conductor -> Superset
 ROOT="${WT_ROOT:-${CONDUCTOR_ROOT_PATH:-${SUPERSET_ROOT_PATH}}}"
-cp "$ROOT/packages/gateway/.env" packages/gateway/.env 2>/dev/null || echo 'No .env found, skipping'
+cp "$ROOT/.env" .env 2>/dev/null || echo 'No root .env found, skipping'
 """
 set-port = """
 # env fallback: Worktrunk -> Conductor -> Superset
 PORT="${WT_PORT:-${CONDUCTOR_PORT:-{{ branch | hash_port }}}}"
-# Append PORT to gateway .env (create if missing)
-grep -q '^PORT=' packages/gateway/.env 2>/dev/null && sed -i '' "s/^PORT=.*/PORT=$PORT/" packages/gateway/.env || echo "PORT=$PORT" >> packages/gateway/.env
+# Set PORT in root .env
+grep -q '^PORT=' .env 2>/dev/null && sed -i '' "s/^PORT=.*/PORT=$PORT/" .env || echo "PORT=$PORT" >> .env
 """
 deps = "pnpm install"
 

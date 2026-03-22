@@ -14,6 +14,7 @@ function formatRoute(attempt: Attempt): string {
 
 export function FallbackChain({ attempts }: { attempts: Attempt[] }) {
   const [showPopover, setShowPopover] = useState(false)
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
 
   if (!attempts || attempts.length === 0) return <span className="mono" style={{ color: 'var(--text-muted)' }}>—</span>
@@ -21,11 +22,18 @@ export function FallbackChain({ attempts }: { attempts: Attempt[] }) {
   const final = [...attempts].reverse().find(a => a.status === 'success') || attempts[attempts.length - 1]
   const hasFallbacks = attempts.length > 1
 
+  const handleMouseEnter = () => {
+    if (!hasFallbacks || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    setPopoverPos({ top: rect.bottom + 4, left: rect.left })
+    setShowPopover(true)
+  }
+
   return (
     <div
       ref={containerRef}
       style={{ position: 'relative', display: 'inline-block' }}
-      onMouseEnter={() => hasFallbacks && setShowPopover(true)}
+      onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setShowPopover(false)}
     >
       <span className={`attempt ${final.status} mono`} style={{ cursor: hasFallbacks ? 'help' : undefined }}>
@@ -40,15 +48,14 @@ export function FallbackChain({ attempts }: { attempts: Attempt[] }) {
 
       {showPopover && hasFallbacks && (
         <div style={{
-          position: 'absolute',
-          top: '100%',
-          left: 0,
-          marginTop: '4px',
+          position: 'fixed',
+          top: popoverPos.top,
+          left: popoverPos.left,
           padding: '8px 12px',
           background: 'var(--bg-secondary, #1e1e2e)',
           border: '1px solid var(--border)',
           borderRadius: '6px',
-          zIndex: 100,
+          zIndex: 1000,
           whiteSpace: 'nowrap',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           fontSize: '13px',
