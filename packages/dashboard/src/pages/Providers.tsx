@@ -94,13 +94,20 @@ export default function Providers() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    const normalizedEndpoint = form.endpoint.replace(/\/+$/, '')
+    if (normalizedEndpoint.endsWith('/v1')) {
+      const ok = window.confirm(
+        '你配置的 Endpoint 以 /v1 结尾，系统同步时会自动追加 /v1（最终请求路径为 .../v1/v1/models）。\n确认继续吗？'
+      )
+      if (!ok) return
+    }
     setSubmitting(true)
     try {
       const payload: Record<string, unknown> = {
         type: form.type,
         apiFormat: form.apiFormat,
         endpoint: form.endpoint,
-        costMultiplier: parseFloat(form.costMultiplier) || 1,
+        costMultiplier: Number.isNaN(parseFloat(form.costMultiplier)) ? 1 : parseFloat(form.costMultiplier),
         syncEnabled: form.syncEnabled,
         syncIntervalMinutes: form.syncIntervalMinutes,
       }
@@ -349,28 +356,17 @@ export default function Providers() {
                 </>
               )}
 
-              {form.type === 'openai-compatible' && (
+              {form.type === 'newapi' && (
                 <div className="form-group">
-                  <label>Access Token (optional override) <span className="tip-icon" data-tip="个人设置 → 安全设置中的系统访问令牌">ⓘ</span></label>
+                  <label>Black Group Match <span className="tip-icon" data-tip="想要添加的分组名称，多个用逗号分隔">ⓘ</span></label>
                   <input
-                    type="password"
-                    value={form.accessToken}
-                    onChange={(e) => updateField('accessToken', e.target.value)}
-                    placeholder={editingId ? '(unchanged)' : 'Optional'}
-                    autoComplete="off"
+                    type="text"
+                    value={form.blackGroupMatch}
+                    onChange={(e) => updateField('blackGroupMatch', e.target.value)}
+                    placeholder="group1, group2"
                   />
                 </div>
               )}
-
-              <div className="form-group">
-                <label>Black Group Match <span className="tip-icon" data-tip="想要添加的分组名称，多个用逗号分隔">ⓘ</span></label>
-                <input
-                  type="text"
-                  value={form.blackGroupMatch}
-                  onChange={(e) => updateField('blackGroupMatch', e.target.value)}
-                  placeholder="group1, group2"
-                />
-              </div>
 
               <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input

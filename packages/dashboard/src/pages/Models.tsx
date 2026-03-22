@@ -40,7 +40,7 @@ function formatPrice(v: number | null): string {
 }
 
 function priceRangeStr(prices: (number | null)[]): string {
-  const valid = prices.filter((p): p is number => p !== null && p !== undefined)
+  const valid = prices.filter((p): p is number => p !== null && p !== undefined && p > 0)
   if (valid.length === 0) return '—'
   const min = Math.min(...valid)
   const max = Math.max(...valid)
