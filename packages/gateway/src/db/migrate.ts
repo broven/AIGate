@@ -63,7 +63,7 @@ sqlite.exec(`
     provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
     models_added INTEGER DEFAULT 0,
     models_updated INTEGER DEFAULT 0,
-    models_stale INTEGER DEFAULT 0,
+    models_removed INTEGER DEFAULT 0,
     errors TEXT,
     duration_ms INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -109,6 +109,7 @@ const migrations = [
   `ALTER TABLE providers ALTER COLUMN api_key DROP NOT NULL`, // SQLite ignores this but harmless
   `DELETE FROM model_deployments WHERE status = 'stale'`,
   `ALTER TABLE providers ADD COLUMN api_format TEXT NOT NULL DEFAULT 'openai'`,
+  `ALTER TABLE sync_logs ADD COLUMN models_removed INTEGER DEFAULT 0`,
 ]
 
 for (const sql of migrations) {

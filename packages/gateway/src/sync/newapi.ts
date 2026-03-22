@@ -172,7 +172,7 @@ async function createGroupToken(
       method: 'POST',
       headers,
       body: JSON.stringify({
-        name: `aigate-${groupName}`,
+        name: `aigate-${groupName}`.slice(0, 20),
         group: groupName,
         remain_quota: 5000000000,
         expired_time: -1,
