@@ -101,7 +101,7 @@ export default function Providers() {
         syncIntervalMinutes: form.syncIntervalMinutes,
       }
       if (form.apiKey) payload.apiKey = form.apiKey
-      if (form.type === 'newapi' && form.newapiUserId) payload.newapiUserId = form.newapiUserId
+      if (form.type === 'newapi' && form.newapiUserId) payload.newApiUserId = Number(form.newapiUserId)
       if (form.accessToken) payload.accessToken = form.accessToken
       if (form.blackGroupMatch.trim()) {
         payload.blackGroupMatch = form.blackGroupMatch.split(',').map((s) => s.trim()).filter(Boolean)
@@ -128,7 +128,7 @@ export default function Providers() {
     setSyncResult(null)
     try {
       const result = await syncProvider(id)
-      setSyncResult({ id, message: `Synced: +${result.modelsAdded} added, ${result.modelsUpdated} updated, ${result.modelsStale} stale` })
+      setSyncResult({ id, message: `Synced: +${result.modelsAdded} added, ${result.modelsUpdated} updated, ${result.modelsRemoved} removed` })
       await fetchData()
     } catch (err) {
       setSyncResult({ id, message: err instanceof Error ? err.message : 'Sync failed' })

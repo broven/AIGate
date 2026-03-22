@@ -2,7 +2,7 @@
 
 const PROVIDER_PREFIXES = [
   'openai/', 'anthropic/', 'google/', 'meta-llama/', 'mistralai/',
-  'deepseek/', 'cohere/', 'qwen/', 'microsoft/',
+  'deepseek/', 'cohere/', 'qwen/', 'microsoft/', 'z-ai/',
 ]
 
 const DATE_SUFFIX_RE = /-\d{4}-\d{2}-\d{2}$/
@@ -25,8 +25,13 @@ const MODEL_FAMILIES: Record<string, RegExp> = {
   'claude-3.5-sonnet': /^claude-3[.-]5-sonnet/,
   'claude-3.5-haiku': /^claude-3[.-]5-haiku/,
   'claude-3.7-sonnet': /^claude-3[.-]7-sonnet/,
-  'claude-4-sonnet': /^claude-(?:sonnet-)?4[.-]?(?:sonnet)?/,
-  'claude-4-opus': /^claude-(?:opus-)?4[.-]?(?:opus)?/,
+  'claude-sonnet-4-5': /^claude-(?:sonnet-)?4[.-]5[.-]?(?:sonnet)?/,
+  'claude-sonnet-4-6': /^claude-(?:sonnet-)?4[.-]6[.-]?(?:sonnet)?/,
+  'claude-opus-4-5': /^claude-(?:opus-)?4[.-]5[.-]?(?:opus)?/,
+  'claude-opus-4-6': /^claude-(?:opus-)?4[.-]6[.-]?(?:opus)?/,
+  'claude-haiku-4-5': /^claude-(?:haiku-)?4[.-]5[.-]?(?:haiku)?/,
+  'claude-sonnet-4': /^claude-(?:sonnet-)?4[.-]?(?:sonnet)?/,
+  'claude-opus-4': /^claude-(?:opus-)?4[.-]?(?:opus)?/,
   'gemini-2.0-flash': /^gemini-2\.0-flash/,
   'gemini-2.5-pro': /^gemini-2\.5-pro/,
   'gemini-2.5-flash': /^gemini-2\.5-flash/,

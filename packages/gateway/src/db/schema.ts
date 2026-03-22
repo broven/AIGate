@@ -50,7 +50,7 @@ export const syncLogs = sqliteTable('sync_logs', {
   providerId: text('provider_id').notNull().references(() => providers.id, { onDelete: 'cascade' }),
   modelsAdded: integer('models_added').default(0),
   modelsUpdated: integer('models_updated').default(0),
-  modelsStale: integer('models_stale').default(0),
+  modelsRemoved: integer('models_removed').default(0),
   errors: text('errors'), // JSON array
   durationMs: integer('duration_ms'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),

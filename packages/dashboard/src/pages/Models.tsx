@@ -405,7 +405,7 @@ function ModelGroup({
           </span>
         </td>
       </tr>
-      {isExpanded && deployments.map((d) => (
+      {isExpanded && [...deployments].sort((a, b) => (effectivePrice(a).input ?? Infinity) - (effectivePrice(b).input ?? Infinity)).map((d) => (
         <DeploymentRow
           key={d.deploymentId}
           deployment={d}

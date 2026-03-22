@@ -83,21 +83,18 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
     }
   }
 
-  // Mark stale: models that were active but not seen in this sync
-  let modelsStale = 0
+  // Delete deployments not seen in this sync
+  let modelsRemoved = 0
   if (seenDeploymentIds.length > 0) {
-    const staleResult = await db
-      .update(schema.modelDeployments)
-      .set({ status: 'stale' })
+    const deleteResult = await db
+      .delete(schema.modelDeployments)
       .where(
         and(
           eq(schema.modelDeployments.providerId, provider.id),
-          eq(schema.modelDeployments.status, 'active'),
           notInArray(schema.modelDeployments.deploymentId, seenDeploymentIds),
         ),
       )
-    // Count isn't directly available from drizzle update, approximate
-    modelsStale = 0 // Will be calculated from db after
+    modelsRemoved = 0
   }
 
   // Update provider last sync time
@@ -111,7 +108,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
     providerId: provider.id,
     modelsAdded,
     modelsUpdated,
-    modelsStale,
+    modelsRemoved,
     errors: syncResult.errors,
     durationMs,
   }
@@ -121,13 +118,13 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
     providerId: provider.id,
     modelsAdded,
     modelsUpdated,
-    modelsStale,
+    modelsRemoved,
     errors: syncResult.errors.length > 0 ? JSON.stringify(syncResult.errors) : null,
     durationMs,
   })
 
   console.log(
-    `[sync] ${provider.id}: +${modelsAdded} updated=${modelsUpdated} stale=${modelsStale} errors=${syncResult.errors.length} (${durationMs}ms)`,
+    `[sync] ${provider.id}: +${modelsAdded} updated=${modelsUpdated} removed=${modelsRemoved} errors=${syncResult.errors.length} (${durationMs}ms)`,
   )
 
   return result

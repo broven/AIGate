@@ -3,18 +3,106 @@
 import { canonicalize } from './canonicalize'
 import { getModelsDevPricing, lookupPrice } from './models-dev'
 
-// NewAPI /api/pricing response format
-interface NewAPIPricingResponse {
-  model_group: Record<string, {
-    DisplayName: string
-    GroupRatio: number
-    ModelPrice: Record<string, { priceType: number; price: number }>
-  }>
+// NewAPI /api/pricing response — actual format from packyapi
+interface NewAPIPricingEntry {
+  model_name: string
+  model_ratio: number
+  model_price: number
+  completion_ratio: number
+  enable_groups: string[]
+  vendor_id?: number
+  quota_type?: number
+  owner_by?: string
+  supported_endpoint_types?: string[]
 }
 
-// NewAPI /api/ratio_config response
-interface NewAPIRatioConfig {
-  [model: string]: number // completion_ratio
+interface NewAPIPricingResponse {
+  success: boolean
+  data: NewAPIPricingEntry[]
+  group_ratio: Record<string, number>
+  usable_group: Record<string, string>
+}
+
+// Yunwu-style /api/pricing response (data is an object, not array)
+interface YunwuPricingResponse {
+  success: boolean
+  data: {
+    model_info: Record<string, { name: string; supplier?: string; tags?: string[] }>
+    model_completion_ratio: Record<string, number>
+    group_special: Record<string, string[]>
+    model_group: Record<string, {
+      DisplayName?: string
+      GroupRatio: number
+      ModelPrice?: Record<string, { priceType: number; price: number }>
+    }>
+  }
+}
+
+/** Detect and normalize yunwu-style pricing into the standard NewAPI format */
+function normalizeYunwuPricing(raw: YunwuPricingResponse): NewAPIPricingResponse {
+  const { model_info, model_completion_ratio, group_special, model_group } = raw.data
+
+  // Build group_ratio from model_group
+  const group_ratio: Record<string, number> = {}
+  for (const [groupName, group] of Object.entries(model_group)) {
+    group_ratio[groupName] = group.GroupRatio ?? 1
+  }
+
+  // Collect all model names from both model_info AND ModelPrice in each group
+  // (some models only appear in ModelPrice, not in model_info)
+  const allModels = new Set<string>(Object.keys(model_info))
+  const modelGroupMembership = new Map<string, string[]>()
+
+  // Build group membership from group_special first
+  for (const [modelName, groups] of Object.entries(group_special)) {
+    modelGroupMembership.set(modelName, [...groups])
+  }
+
+  // Also discover models that only exist in ModelPrice
+  for (const [groupName, group] of Object.entries(model_group)) {
+    for (const modelName of Object.keys(group.ModelPrice || {})) {
+      allModels.add(modelName)
+      if (!modelGroupMembership.has(modelName)) {
+        modelGroupMembership.set(modelName, [])
+      }
+      const groups = modelGroupMembership.get(modelName)!
+      if (!groups.includes(groupName)) {
+        groups.push(groupName)
+      }
+    }
+  }
+
+  // Build per-model entries
+  const data: NewAPIPricingEntry[] = []
+  for (const modelName of allModels) {
+    const enableGroups = modelGroupMembership.get(modelName) || []
+    const completionRatio = model_completion_ratio[modelName] ?? 1
+
+    // Find the best model_price from model_group entries
+    let modelPrice = 0
+    for (const groupName of enableGroups) {
+      const grp = model_group[groupName]
+      if (grp?.ModelPrice?.[modelName]) {
+        modelPrice = grp.ModelPrice[modelName].price
+        break
+      }
+    }
+
+    data.push({
+      model_name: modelName,
+      model_ratio: 0,
+      model_price: modelPrice,
+      completion_ratio: completionRatio,
+      enable_groups: enableGroups,
+    })
+  }
+
+  return {
+    success: raw.success,
+    data,
+    group_ratio,
+    usable_group: {},
+  }
 }
 
 // NewAPI token
@@ -61,8 +149,9 @@ async function fetchExistingTokens(
       signal: AbortSignal.timeout(10_000),
     })
     if (!res.ok) return map
-    const data = await res.json() as { data?: NewAPIToken[] }
-    for (const t of data.data || []) {
+    const data = await res.json() as { data?: { items?: NewAPIToken[] } | NewAPIToken[] }
+    const items = Array.isArray(data.data) ? data.data : (data.data?.items || [])
+    for (const t of items) {
       if (t.group && t.status === 1 && t.name?.startsWith('aigate-')) {
         map.set(t.group, t)
       }
@@ -95,8 +184,13 @@ async function createGroupToken(
       console.warn(`[newapi] Failed to create token for group ${groupName}: ${res.status}`)
       return null
     }
-    const data = await res.json() as { data?: string; key?: string }
-    return data.data || data.key || null
+    const data = await res.json() as { success?: boolean; message?: string; data?: { key?: string; id?: number } | string }
+    if (data.success === false) {
+      console.warn(`[newapi] Token creation rejected for group ${groupName}: ${data.message}`)
+      return null
+    }
+    const key = typeof data.data === 'object' ? data.data?.key : data.data
+    return key || null
   } catch (err) {
     console.warn(`[newapi] Error creating token for group ${groupName}:`, err)
     return null
@@ -117,7 +211,7 @@ export async function syncNewAPIProvider(
   const headers = newApiHeaders(authToken, newApiUserId)
 
   try {
-    // Step 1: Fetch pricing data (groups + models + prices)
+    // Step 1: Fetch pricing data
     const pricingRes = await fetch(`${endpoint}/api/pricing`, {
       headers,
       signal: AbortSignal.timeout(30_000),
@@ -128,82 +222,96 @@ export async function syncNewAPIProvider(
       return { models, errors }
     }
 
-    const pricingData = await pricingRes.json() as NewAPIPricingResponse
+    const pricingRaw = await pricingRes.json() as any
 
-    if (!pricingData.model_group || typeof pricingData.model_group !== 'object') {
-      // Fallback: try legacy flat format
-      const legacyData = pricingData as unknown as { data?: Array<{ model_group: string; model_name: string; model_price: number; group_ratio: number }> }
-      if (legacyData.data && Array.isArray(legacyData.data)) {
-        return syncNewAPILegacyFormat(legacyData.data, endpoint, authToken, costMultiplier, blackGroupMatch, newApiUserId)
-      }
-      errors.push('Unexpected pricing format: no model_group field')
+    // Detect yunwu-style format: data is object with model_info key
+    let pricingData: NewAPIPricingResponse
+    if (pricingRaw.data && !Array.isArray(pricingRaw.data) && pricingRaw.data.model_info) {
+      console.log(`[newapi] Detected yunwu-style pricing format, normalizing...`)
+      pricingData = normalizeYunwuPricing(pricingRaw as YunwuPricingResponse)
+    } else {
+      pricingData = pricingRaw as NewAPIPricingResponse
+    }
+
+    if (!pricingData.data || !Array.isArray(pricingData.data)) {
+      errors.push(`Unexpected pricing format: missing data array`)
       return { models, errors }
     }
 
-    // Step 2: Fetch ratio config for completion ratios
-    let ratioConfig: NewAPIRatioConfig = {}
-    try {
-      const ratioRes = await fetch(`${endpoint}/api/ratio_config`, {
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (ratioRes.ok) {
-        ratioConfig = await ratioRes.json() as NewAPIRatioConfig
-      }
-    } catch {
-      errors.push('Failed to fetch ratio_config')
-    }
+    const groupRatioMap = pricingData.group_ratio || {}
+    console.log(`[newapi] Got ${pricingData.data.length} models, ${Object.keys(groupRatioMap).length} groups`)
 
-    // Step 3: Fetch existing AIGate tokens and create missing ones
+    // Step 2: Fetch existing AIGate tokens and create missing ones
     const existingTokens = await fetchExistingTokens(endpoint, headers)
 
-    // Step 4: Get models.dev pricing for fallback
+    // Step 3: Get models.dev pricing for fallback
     const modelsDevPricing = await getModelsDevPricing()
 
-    // Step 5: Process each group
-    for (const [groupName, groupData] of Object.entries(pricingData.model_group)) {
-      // Apply blackGroupMatch filter
-      const isBlacklisted = blackGroupMatch.some(
-        (pattern) => groupName.toLowerCase().includes(pattern.toLowerCase()),
-      )
-      if (isBlacklisted) continue
+    // Step 4: Collect all unique non-blacklisted groups
+    const neededGroups = new Set<string>()
+    for (const entry of pricingData.data) {
+      if (!entry.model_name || !entry.enable_groups) continue
+      for (const group of entry.enable_groups) {
+        if (!group) continue
+        const isBlacklisted = blackGroupMatch.some(
+          (pattern) => group.toLowerCase().includes(pattern.toLowerCase()),
+        )
+        if (!isBlacklisted) neededGroups.add(group)
+      }
+    }
 
-      // Get or create group token
-      let groupToken: string | null = null
+    // Step 5: Get or create tokens for all needed groups (sequential to avoid overloading upstream)
+    const groupTokens = new Map<string, string | null>()
+    for (const groupName of neededGroups) {
       const existing = existingTokens.get(groupName)
       if (existing) {
-        groupToken = existing.key
+        groupTokens.set(groupName, existing.key)
       } else {
-        groupToken = await createGroupToken(endpoint, headers, groupName)
+        const token = await createGroupToken(endpoint, headers, groupName)
+        groupTokens.set(groupName, token)
+        if (!token) errors.push(`Failed to get token for group: ${groupName}`)
       }
+    }
 
-      if (!groupToken) {
-        errors.push(`Failed to get token for group: ${groupName}`)
-        continue
-      }
+    // Step 6: Process each model × group combination
+    for (const entry of pricingData.data) {
+      if (!entry.model_name || !entry.enable_groups) continue
 
-      // Process each model in this group
-      const groupRatio = groupData.GroupRatio ?? 1
-      for (const [modelName, modelData] of Object.entries(groupData.ModelPrice || {})) {
-        const canonical = canonicalize(modelName)
+      for (const groupName of entry.enable_groups) {
+        if (!groupName) continue
+
+        const isBlacklisted = blackGroupMatch.some(
+          (pattern) => groupName.toLowerCase().includes(pattern.toLowerCase()),
+        )
+        if (isBlacklisted) continue
+
+        const groupToken = groupTokens.get(groupName)
+        if (!groupToken) continue
+
+        const canonical = canonicalize(entry.model_name)
+        const grpRatio = groupRatioMap[groupName] ?? 1
 
         let priceInput: number | null = null
         let priceOutput: number | null = null
         let priceSource: 'provider_api' | 'models_dev' | 'unknown' = 'unknown'
 
-        if (modelData.price > 0) {
-          const completionRatio = ratioConfig[modelName] ?? 1
-          const basePrice = modelData.price * groupRatio * BASE_FACTOR * costMultiplier
-
+        if (entry.model_price > 0) {
+          const basePrice = entry.model_price * grpRatio * BASE_FACTOR * costMultiplier
           priceInput = basePrice
-          priceOutput = basePrice * completionRatio
+          priceOutput = basePrice * (entry.completion_ratio ?? 1)
+          priceSource = 'provider_api'
+        } else if (entry.model_ratio > 0) {
+          // model_ratio based pricing: ratio * group_ratio * BASE_FACTOR
+          const basePrice = entry.model_ratio * grpRatio * BASE_FACTOR * costMultiplier
+          priceInput = basePrice
+          priceOutput = basePrice * (entry.completion_ratio ?? 1)
           priceSource = 'provider_api'
         } else if (costMultiplier === 0) {
           priceInput = 0
           priceOutput = 0
           priceSource = 'provider_api'
         } else {
-          const devPrice = lookupPrice(modelsDevPricing, modelName)
+          const devPrice = lookupPrice(modelsDevPricing, entry.model_name)
           if (devPrice) {
             priceInput = devPrice.input * costMultiplier
             priceOutput = devPrice.output * costMultiplier
@@ -213,11 +321,11 @@ export async function syncNewAPIProvider(
 
         models.push({
           canonical,
-          upstream: modelName,
+          upstream: entry.model_name,
           groupName,
-          apiKey: `sk-${groupToken}`, // NewAPI tokens need sk- prefix
-          priceInput,
-          priceOutput,
+          apiKey: `sk-${groupToken}`,
+          priceInput: priceInput !== null ? Math.round(priceInput * 1e5) / 1e5 : null,
+          priceOutput: priceOutput !== null ? Math.round(priceOutput * 1e5) / 1e5 : null,
           priceSource,
         })
       }
@@ -229,71 +337,3 @@ export async function syncNewAPIProvider(
   return { models, errors }
 }
 
-// Legacy flat format fallback (some NewAPI instances use this)
-async function syncNewAPILegacyFormat(
-  entries: Array<{ model_group: string; model_name: string; model_price: number; group_ratio: number }>,
-  endpoint: string,
-  authToken: string,
-  costMultiplier: number,
-  blackGroupMatch: string[],
-  newApiUserId?: number,
-): Promise<{ models: SyncedModel[]; errors: string[] }> {
-  const errors: string[] = []
-  const models: SyncedModel[] = []
-  const headers = newApiHeaders(authToken, newApiUserId)
-  const existingTokens = await fetchExistingTokens(endpoint, headers)
-  const modelsDevPricing = await getModelsDevPricing()
-  const groupTokens = new Map<string, string | null>()
-
-  for (const entry of entries) {
-    const isBlacklisted = blackGroupMatch.some(
-      (pattern) => entry.model_group.toLowerCase().includes(pattern.toLowerCase()),
-    )
-    if (isBlacklisted) continue
-
-    // Get or create group token (cached per group)
-    if (!groupTokens.has(entry.model_group)) {
-      const existing = existingTokens.get(entry.model_group)
-      if (existing) {
-        groupTokens.set(entry.model_group, existing.key)
-      } else {
-        const token = await createGroupToken(endpoint, headers, entry.model_group)
-        groupTokens.set(entry.model_group, token)
-      }
-    }
-
-    const groupToken = groupTokens.get(entry.model_group)
-    if (!groupToken) continue
-
-    const canonical = canonicalize(entry.model_name)
-    let priceInput: number | null = null
-    let priceOutput: number | null = null
-    let priceSource: 'provider_api' | 'models_dev' | 'unknown' = 'unknown'
-
-    if (entry.model_price > 0) {
-      const basePrice = entry.model_price * entry.group_ratio * BASE_FACTOR * costMultiplier
-      priceInput = basePrice
-      priceOutput = basePrice
-      priceSource = 'provider_api'
-    } else {
-      const devPrice = lookupPrice(modelsDevPricing, entry.model_name)
-      if (devPrice) {
-        priceInput = devPrice.input * costMultiplier
-        priceOutput = devPrice.output * costMultiplier
-        priceSource = 'models_dev'
-      }
-    }
-
-    models.push({
-      canonical,
-      upstream: entry.model_name,
-      groupName: entry.model_group,
-      apiKey: `sk-${groupToken}`,
-      priceInput,
-      priceOutput,
-      priceSource,
-    })
-  }
-
-  return { models, errors }
-}

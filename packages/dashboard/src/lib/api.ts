@@ -73,7 +73,7 @@ export interface SyncResult {
   providerId: string
   modelsAdded: number
   modelsUpdated: number
-  modelsStale: number
+  modelsRemoved: number
   errors: string[]
   durationMs: number
 }

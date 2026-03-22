@@ -166,4 +166,5 @@ export default {
   port,
   hostname: host,
   fetch: app.fetch,
+  idleTimeout: 120, // seconds — sync can take a while creating group tokens
 }
