@@ -6,12 +6,20 @@ import { hashKey } from '../utils'
 export const gatewayAuth = createMiddleware<{
   Variables: { gatewayKeyName: string }
 }>(async (c, next) => {
+  // Support both Authorization: Bearer <token> and x-api-key: <token>
   const authHeader = c.req.header('Authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: { message: 'Missing or invalid Authorization header', type: 'invalid_request_error', code: 'invalid_api_key' } }, 401)
+  const xApiKey = c.req.header('x-api-key')
+
+  let token: string | undefined
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7)
+  } else if (xApiKey) {
+    token = xApiKey
   }
 
-  const token = authHeader.slice(7)
+  if (!token) {
+    return c.json({ error: { message: 'Missing API key. Provide via Authorization: Bearer <key> or x-api-key header.', type: 'invalid_request_error', code: 'invalid_api_key' } }, 401)
+  }
   const hashed = hashKey(token)
 
   const keyRow = await db

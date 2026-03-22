@@ -7,10 +7,10 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || 'dev'),
   },
   server: {
-    port: 5173,
+    port: parseInt(process.env.VITE_PORT || '5173'),
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: `http://localhost:${process.env.API_PORT || '3000'}`,
         changeOrigin: true,
       },
     },

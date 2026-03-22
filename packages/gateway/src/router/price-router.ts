@@ -2,12 +2,14 @@ import { eq, and } from 'drizzle-orm'
 import { db, schema } from '../db'
 import type { UniversalRequest, UniversalResponse, RouteAttempt } from '@aigate/shared'
 import { sendToOpenAICompatible, parseOpenAIResponse } from '../adapters/outbound/openai'
+import { sendToAnthropic, parseAnthropicResponse } from '../adapters/outbound/anthropic'
+import { sendToGemini, parseGeminiResponse } from '../adapters/outbound/gemini'
 import {
   isInCooldown,
   enterCooldown,
   liftCooldown,
 } from './cooldown'
-import { formatOpenAIStreamChunk } from '../adapters/inbound/openai'
+import type { ApiFormat } from '../adapters/registry'
 
 interface Deployment {
   deploymentId: string
@@ -19,6 +21,7 @@ interface Deployment {
   priceOutput: number
   endpoint: string
   apiKey: string
+  apiFormat: ApiFormat
 }
 
 function getEffectivePrice(d: {
@@ -50,6 +53,7 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       endpoint: schema.providers.endpoint,
       providerApiKey: schema.providers.apiKey,
       providerAccessToken: schema.providers.accessToken,
+      providerApiFormat: schema.providers.apiFormat,
       deploymentApiKey: schema.modelDeployments.apiKey,
     })
     .from(schema.modelDeployments)
@@ -74,6 +78,7 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       endpoint: r.endpoint,
       // Priority: deployment-specific key > provider access token > provider API key
       apiKey: r.deploymentApiKey || r.providerAccessToken || r.providerApiKey || '',
+      apiFormat: (r.providerApiFormat ?? 'openai') as ApiFormat,
     }
   })
 }
@@ -88,6 +93,7 @@ function classifyError(status: number): 'client' | 'auth' | 'rate_limit' | 'serv
 export interface RouteResult {
   response?: UniversalResponse
   streamResponse?: Response
+  upstreamFormat?: ApiFormat
   attempts: RouteAttempt[]
   finalProvider: string | null
   totalLatencyMs: number
@@ -145,6 +151,7 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
       return {
         response: result.response,
         streamResponse: result.streamResponse,
+        upstreamFormat: deployment.apiFormat,
         attempts,
         finalProvider: deployment.providerId,
         totalLatencyMs: Date.now() - startTime,
@@ -174,6 +181,7 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
       return {
         response: result.response,
         streamResponse: result.streamResponse,
+        upstreamFormat: deployment.apiFormat,
         attempts,
         finalProvider: deployment.providerId,
         totalLatencyMs: Date.now() - startTime,
@@ -202,7 +210,12 @@ async function tryDeployment(
   const attemptStart = Date.now()
 
   try {
-    const upstreamResponse = await sendToOpenAICompatible(
+    // Select outbound adapter based on provider's API format
+    const sendFn = deployment.apiFormat === 'claude' ? sendToAnthropic
+      : deployment.apiFormat === 'gemini' ? sendToGemini
+      : sendToOpenAICompatible
+
+    const upstreamResponse = await sendFn(
       req,
       deployment.endpoint,
       deployment.apiKey,
@@ -268,7 +281,10 @@ async function tryDeployment(
 
     // Non-streaming: parse full response
     const rawJson = await upstreamResponse.json()
-    const parsed = parseOpenAIResponse(rawJson as Record<string, unknown>)
+    const parseFn = deployment.apiFormat === 'claude' ? parseAnthropicResponse
+      : deployment.apiFormat === 'gemini' ? parseGeminiResponse
+      : parseOpenAIResponse
+    const parsed = parseFn(rawJson as Record<string, unknown>)
 
     return {
       attempt: {

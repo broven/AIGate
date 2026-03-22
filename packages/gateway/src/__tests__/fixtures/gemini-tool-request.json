@@ -1,0 +1,52 @@
+{
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        { "text": "What's the weather in Tokyo?" }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "name": "get_weather",
+            "args": { "location": "Tokyo" }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "get_weather",
+            "response": { "temperature": 22, "condition": "sunny" }
+          }
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "functionDeclarations": [
+        {
+          "name": "get_weather",
+          "description": "Get the current weather in a location",
+          "parameters": {
+            "type": "OBJECT",
+            "properties": {
+              "location": { "type": "STRING", "description": "City name" }
+            },
+            "required": ["location"]
+          }
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "maxOutputTokens": 1024
+  }
+}

@@ -3,8 +3,12 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { gatewayAuth } from './middleware/auth'
 import { parseOpenAIRequest, formatOpenAIResponse, formatOpenAIError } from './adapters/inbound/openai'
+import { parseAnthropicRequest, formatAnthropicResponse, formatAnthropicError } from './adapters/inbound/anthropic'
+import { parseGeminiRequest, formatGeminiResponse, formatGeminiError } from './adapters/inbound/gemini'
 import { routeRequest } from './router/price-router'
 import { logRequest } from './logging/request-logger'
+import { initLlmsBridge, getTransformer, buildContext } from './adapters/llms-bridge'
+import type { ApiFormat } from './adapters/registry'
 import statsApi from './api/stats'
 import providersApi from './api/providers'
 import keysApi from './api/keys'
@@ -26,17 +30,28 @@ app.route('/api/providers', providersApi)
 app.route('/api/keys', keysApi)
 app.route('/api/models', modelsApi)
 
-// OpenAI-compatible proxy endpoint (requires gateway auth)
-app.post('/v1/chat/completions', gatewayAuth, async (c) => {
+// --- Shared LLM request handler ---
+interface RequestHandler {
+  parseRequest: (body: any, gatewayKeyName: string, ...extra: any[]) => any
+  formatResponse: (resp: any) => any
+  formatError: (message: string, type: string, code?: string | number) => any
+  sourceFormat: 'openai' | 'gemini' | 'claude'
+}
+
+async function handleLLMRequest(
+  c: any,
+  handler: RequestHandler,
+  ...parseExtra: any[]
+) {
   const body = await c.req.json()
   const gatewayKeyName = c.get('gatewayKeyName')
 
   let universalReq
   try {
-    universalReq = parseOpenAIRequest(body, gatewayKeyName)
+    universalReq = await handler.parseRequest(body, gatewayKeyName, ...parseExtra)
   } catch (error) {
     return c.json(
-      formatOpenAIError(
+      handler.formatError(
         error instanceof Error ? error.message : 'Invalid request',
         'invalid_request_error',
         'invalid_request',
@@ -45,21 +60,32 @@ app.post('/v1/chat/completions', gatewayAuth, async (c) => {
     )
   }
 
-  const routeResult = await routeRequest(universalReq)
+  let routeResult
+  try {
+    routeResult = await routeRequest(universalReq)
+  } catch (error) {
+    return c.json(
+      handler.formatError(
+        error instanceof Error ? error.message : 'Internal routing error',
+        'server_error',
+        'internal_error',
+      ),
+      500,
+    )
+  }
 
   // All providers failed
   if (!routeResult.finalProvider) {
-    // Log the failed request
     logRequest({
       requestId: universalReq.id,
       model: universalReq.model,
       gatewayKey: gatewayKeyName,
-      sourceFormat: 'openai',
+      sourceFormat: handler.sourceFormat,
       routeResult,
     })
 
     return c.json(
-      formatOpenAIError(
+      handler.formatError(
         `All providers failed for model ${universalReq.model}. Attempts: ${routeResult.attempts.length}`,
         'server_error',
         'all_providers_failed',
@@ -70,17 +96,33 @@ app.post('/v1/chat/completions', gatewayAuth, async (c) => {
 
   // Streaming response
   if (routeResult.streamResponse) {
-    // Log without token counts (streaming — we don't know yet)
     logRequest({
       requestId: universalReq.id,
       model: universalReq.model,
       gatewayKey: gatewayKeyName,
-      sourceFormat: 'openai',
+      sourceFormat: handler.sourceFormat,
       routeResult,
     })
 
-    // Pipe through the upstream SSE stream
-    return new Response(routeResult.streamResponse.body, {
+    // Transform stream if client format differs from upstream format
+    let streamResponse = routeResult.streamResponse
+    const upstreamFormat = routeResult.upstreamFormat ?? 'openai'
+
+    if (handler.sourceFormat !== upstreamFormat) {
+      streamResponse = await transformStreamFormat(
+        streamResponse,
+        upstreamFormat,
+        handler.sourceFormat,
+        universalReq.model,
+      )
+
+      // If stream transformation returned an error (non-200), propagate it directly
+      if (!streamResponse.ok) {
+        return streamResponse
+      }
+    }
+
+    return new Response(streamResponse.body, {
       status: 200,
       headers: {
         'Content-Type': 'text/event-stream',
@@ -93,25 +135,59 @@ app.post('/v1/chat/completions', gatewayAuth, async (c) => {
   // Non-streaming response
   const response = routeResult.response!
 
-  // Log with token counts
   logRequest({
     requestId: universalReq.id,
     model: universalReq.model,
     gatewayKey: gatewayKeyName,
-    sourceFormat: 'openai',
+    sourceFormat: handler.sourceFormat,
     routeResult,
     response,
   })
 
-  return c.json(
-    formatOpenAIResponse(
-      universalReq.id,
-      universalReq.model,
-      response.content,
-      response.finishReason,
-      response.toolCalls,
-      response.usage,
-    ),
+  return c.json(handler.formatResponse(response))
+}
+
+// --- OpenAI-compatible proxy endpoint ---
+app.post('/v1/chat/completions', gatewayAuth, (c) =>
+  handleLLMRequest(c, {
+    parseRequest: parseOpenAIRequest,
+    formatResponse: (resp) =>
+      formatOpenAIResponse(resp.id, resp.model, resp.content, resp.finishReason, resp.toolCalls, resp.usage),
+    formatError: formatOpenAIError,
+    sourceFormat: 'openai',
+  }),
+)
+
+// --- Anthropic Messages API endpoint ---
+app.post('/v1/messages', gatewayAuth, (c) =>
+  handleLLMRequest(c, {
+    parseRequest: parseAnthropicRequest,
+    formatResponse: formatAnthropicResponse,
+    formatError: formatAnthropicError,
+    sourceFormat: 'claude',
+  }),
+)
+
+// --- Gemini API endpoint ---
+app.post('/v1beta/models/:modelAction', gatewayAuth, (c) => {
+  const modelAction = c.req.param('modelAction')
+  // Parse "gemini-pro:generateContent" or "gemini-pro:streamGenerateContent"
+  const colonIdx = modelAction.lastIndexOf(':')
+  const modelName = colonIdx > 0 ? modelAction.slice(0, colonIdx) : modelAction
+  const action = colonIdx > 0 ? modelAction.slice(colonIdx + 1) : 'generateContent'
+  const isStream = action.startsWith('streamGenerateContent')
+
+  return handleLLMRequest(
+    c,
+    {
+      parseRequest: (body: any, keyName: string, model: string, stream: boolean) =>
+        parseGeminiRequest(body, keyName, model, stream),
+      formatResponse: formatGeminiResponse,
+      formatError: formatGeminiError,
+      sourceFormat: 'gemini',
+    },
+    modelName,
+    isStream,
   )
 })
 
@@ -154,8 +230,54 @@ app.get('/*', async (c) => {
   return c.json({ error: { message: 'Not found' } }, 404)
 })
 
+/**
+ * Transform a streaming response from one API format to another using llms transformers.
+ *
+ * Supported conversions:
+ * - openai → claude: AnthropicTransformer.transformResponseIn (OpenAI SSE → Anthropic SSE)
+ * - openai → gemini: GeminiTransformer handles this but not yet implemented
+ * - claude → openai: Not yet implemented (would need Anthropic SSE → OpenAI SSE)
+ * - gemini → openai: GeminiTransformer.transformResponseOut (Gemini → OpenAI)
+ */
+async function transformStreamFormat(
+  response: Response,
+  fromFormat: ApiFormat,
+  toFormat: ApiFormat,
+  model: string,
+): Promise<Response> {
+  // OpenAI upstream → Anthropic client (most common: Claude Code + OpenAI-compat provider)
+  if (fromFormat === 'openai' && toFormat === 'claude') {
+    const transformer = getTransformer('Anthropic')
+    if (transformer.transformResponseIn) {
+      const ctx = buildContext({ stream: true, model })
+      return await transformer.transformResponseIn(response, ctx)
+    }
+  }
+
+  // Gemini upstream → OpenAI client
+  if (fromFormat === 'gemini' && toFormat === 'openai') {
+    const transformer = getTransformer('gemini')
+    if (transformer.transformResponseOut) {
+      return await transformer.transformResponseOut(response)
+    }
+  }
+
+  // Unsupported conversion — return error response instead of corrupted stream
+  const errorBody = JSON.stringify({
+    error: { message: `Streaming format conversion from ${fromFormat} to ${toFormat} is not yet supported`, type: 'server_error' },
+  })
+  return new Response(errorBody, {
+    status: 501,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 const port = parseInt(process.env.PORT || '3000', 10)
 const host = process.env.HOST || '127.0.0.1'
+
+// Initialize llms bridge for format conversion (synchronous — must complete before server accepts requests)
+initLlmsBridge()
+console.log('llms TransformerService initialized')
 
 console.log(`AIGate starting on http://${host}:${port}`)
 
