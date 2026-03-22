@@ -18,6 +18,7 @@ Intelligent LLM API gateway with automatic provider fallback, price-based routin
 
 ```bash
 docker run -d \
+  --name aigate \
   -p 3000:3000 \
   -v aigate-data:/app/packages/gateway/data \
   ghcr.io/broven/aigate:latest
@@ -25,20 +26,40 @@ docker run -d \
 
 Open `http://localhost:3000` to access the dashboard.
 
+Custom port and database path:
+
+```bash
+docker run -d \
+  --name aigate \
+  -p 8080:8080 \
+  -e PORT=8080 \
+  -e DATABASE_URL=/app/packages/gateway/data/gateway.db \
+  -v aigate-data:/app/packages/gateway/data \
+  ghcr.io/broven/aigate:latest
+```
+
 ### Docker Compose
 
 ```yaml
 services:
   aigate:
     image: ghcr.io/broven/aigate:latest
+    container_name: aigate
+    restart: unless-stopped
     ports:
       - "3000:3000"
+    environment:
+      - PORT=3000              # Server port (default: 3000)
+      - HOST=0.0.0.0           # Bind address (default: 0.0.0.0 in Docker)
+      # - DATABASE_URL=/app/packages/gateway/data/aigate.db  # SQLite path (default)
     volumes:
-      - aigate-data:/app/packages/gateway/data
+      - aigate-data:/app/packages/gateway/data   # Persistent database storage
 
 volumes:
   aigate-data:
 ```
+
+> **Volume**: `/app/packages/gateway/data` is where the SQLite database is stored. Mount this to persist data across container restarts. The database and tables are created automatically on first start.
 
 ### From source
 
@@ -57,7 +78,7 @@ All configuration is via environment variables. Everything has sensible defaults
 | `HOST` | `0.0.0.0` (Docker) / `127.0.0.1` (local) | Bind address |
 | `DATABASE_URL` | `./data/aigate.db` | SQLite database path |
 
-Data is stored in a single SQLite file. The database and tables are created automatically on first start.
+Data is stored in a single SQLite file at the `DATABASE_URL` path. The database and tables are created automatically on first start. In Docker, this defaults to `/app/packages/gateway/data/aigate.db` — make sure to mount a volume at `/app/packages/gateway/data` to persist data.
 
 ## Usage
 
