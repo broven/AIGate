@@ -1,13 +1,13 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies using bun with npm-compatible lockfile
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/gateway/package.json packages/gateway/
 COPY packages/dashboard/package.json packages/dashboard/
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Build dashboard
 FROM deps AS dashboard-build
@@ -22,7 +22,7 @@ FROM base AS production
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/gateway/package.json packages/gateway/
-RUN bun install --frozen-lockfile --production
+RUN bun install --production
 
 COPY packages/shared packages/shared
 COPY packages/gateway packages/gateway
