@@ -9,12 +9,6 @@ export function nanoid(size = 21): string {
   return id
 }
 
-export function hashKey(key: string): string {
-  const hasher = new Bun.CryptoHasher('sha256')
-  hasher.update(key)
-  return hasher.digest('hex')
-}
-
 export function generateApiKey(): string {
   return `sk-gate-${nanoid(32)}`
 }

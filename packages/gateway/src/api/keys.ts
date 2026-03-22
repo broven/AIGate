@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db'
-import { nanoid, hashKey, generateApiKey } from '../utils'
+import { nanoid, generateApiKey } from '../utils'
 
 const app = new Hono()
 
@@ -10,7 +10,7 @@ app.get('/', async (c) => {
   const rows = await db.select({
     id: schema.gatewayKeys.id,
     name: schema.gatewayKeys.name,
-    keyPrefix: schema.gatewayKeys.keyPrefix,
+    keyPlain: schema.gatewayKeys.keyPlain,
     createdAt: schema.gatewayKeys.createdAt,
   }).from(schema.gatewayKeys)
 
@@ -32,12 +32,10 @@ app.post('/', async (c) => {
   await db.insert(schema.gatewayKeys).values({
     id,
     name,
-    keyHash: hashKey(rawKey),
-    keyPrefix: rawKey.slice(0, 8),
+    keyPlain: rawKey,
   })
 
-  // Return the raw key ONCE — it cannot be retrieved again
-  return c.json({ id, name, key: rawKey, keyPrefix: rawKey.slice(0, 8) }, 201)
+  return c.json({ id, name, keyPlain: rawKey }, 201)
 })
 
 // DELETE /api/keys/:id
