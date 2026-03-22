@@ -278,6 +278,43 @@ tr:last-child td {
   font-size: 13px;
 }
 
+.tip-icon {
+  position: relative;
+  cursor: help;
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-left: 2px;
+}
+
+.tip-icon:hover {
+  color: var(--text-secondary);
+}
+
+.tip-icon::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 400;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+.tip-icon:hover::after {
+  opacity: 1;
+}
+
 .form-group input:focus,
 .form-group select:focus {
   outline: none;

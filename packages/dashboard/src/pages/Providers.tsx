@@ -6,7 +6,7 @@ interface ProviderForm {
   type: 'newapi' | 'openai-compatible'
   endpoint: string
   apiKey: string
-  costMultiplier: number
+  costMultiplier: string
   newapiUserId: string
   accessToken: string
   blackGroupMatch: string
@@ -19,7 +19,7 @@ const emptyForm: ProviderForm = {
   type: 'newapi',
   endpoint: '',
   apiKey: '',
-  costMultiplier: 1,
+  costMultiplier: '',
   newapiUserId: '',
   accessToken: '',
   blackGroupMatch: '',
@@ -78,7 +78,7 @@ export default function Providers() {
       type: provider.type,
       endpoint: provider.endpoint,
       apiKey: '',
-      costMultiplier: provider.costMultiplier ?? 1,
+      costMultiplier: String(provider.costMultiplier ?? 1),
       newapiUserId: String(provider.newApiUserId ?? ''),
       accessToken: provider.accessToken ?? '',
       blackGroupMatch: (provider.blackGroupMatch ?? []).join(', '),
@@ -96,7 +96,7 @@ export default function Providers() {
       const payload: Record<string, unknown> = {
         type: form.type,
         endpoint: form.endpoint,
-        costMultiplier: form.costMultiplier,
+        costMultiplier: parseFloat(form.costMultiplier) || 1,
         syncEnabled: form.syncEnabled,
         syncIntervalMinutes: form.syncIntervalMinutes,
       }
@@ -301,20 +301,20 @@ export default function Providers() {
               )}
 
               <div className="form-group">
-                <label>Cost Multiplier</label>
+                <label>Cost Multiplier <span className="tip-icon" data-tip="平台充值1美元话费了多少美元，例如冲50美元顶100 就是0.5">ⓘ</span></label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={form.costMultiplier}
-                  onChange={(e) => updateField('costMultiplier', parseFloat(e.target.value) || 1)}
+                  onChange={(e) => updateField('costMultiplier', e.target.value)}
+                  placeholder="1.00"
                 />
               </div>
 
               {form.type === 'newapi' && (
                 <>
                   <div className="form-group">
-                    <label>NewAPI User ID</label>
+                    <label>NewAPI User ID <span className="tip-icon" data-tip="在个人设置中头像旁边的 ID">ⓘ</span></label>
                     <input
                       type="text"
                       value={form.newapiUserId}
@@ -323,7 +323,7 @@ export default function Providers() {
                     />
                   </div>
                   <div className="form-group">
-                    <label>Access Token</label>
+                    <label>Access Token <span className="tip-icon" data-tip="个人设置 → 安全设置中的系统访问令牌">ⓘ</span></label>
                     <input
                       type="password"
                       value={form.accessToken}
@@ -336,7 +336,7 @@ export default function Providers() {
 
               {form.type === 'openai-compatible' && (
                 <div className="form-group">
-                  <label>Access Token (optional override)</label>
+                  <label>Access Token (optional override) <span className="tip-icon" data-tip="个人设置 → 安全设置中的系统访问令牌">ⓘ</span></label>
                   <input
                     type="password"
                     value={form.accessToken}
@@ -347,7 +347,7 @@ export default function Providers() {
               )}
 
               <div className="form-group">
-                <label>Black Group Match (comma-separated)</label>
+                <label>Black Group Match <span className="tip-icon" data-tip="想要添加的分组名称，多个用逗号分隔">ⓘ</span></label>
                 <input
                   type="text"
                   value={form.blackGroupMatch}
