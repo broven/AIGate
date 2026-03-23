@@ -20,8 +20,7 @@ export const providers = sqliteTable('providers', {
 export const gatewayKeys = sqliteTable('gateway_keys', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
-  keyHash: text('key_hash').notNull(),
-  keyPrefix: text('key_prefix').notNull(),
+  keyPlain: text('key_plain').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 })
 
@@ -90,3 +89,9 @@ export const dailyUsage = sqliteTable('daily_usage', {
 }, (table) => [
   primaryKey({ columns: [table.date, table.gatewayKey, table.model] }),
 ])
+
+export const modelPreferences = sqliteTable('model_preferences', {
+  canonical: text('canonical').primaryKey(),
+  preference: text('preference', { enum: ['favorite', 'blacklist'] }).notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+})

@@ -34,8 +34,7 @@ sqlite.exec(`
   CREATE TABLE IF NOT EXISTS gateway_keys (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
-    key_hash TEXT NOT NULL,
-    key_prefix TEXT NOT NULL,
+    key_plain TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -101,6 +100,12 @@ sqlite.exec(`
     total_saved REAL DEFAULT 0,
     PRIMARY KEY (date, gateway_key, model)
   );
+
+  CREATE TABLE IF NOT EXISTS model_preferences (
+    canonical TEXT PRIMARY KEY,
+    preference TEXT NOT NULL CHECK(preference IN ('favorite', 'blacklist')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `)
 
 // Migrations for existing databases
@@ -110,6 +115,13 @@ const migrations = [
   `DELETE FROM model_deployments WHERE status = 'stale'`,
   `ALTER TABLE providers ADD COLUMN api_format TEXT NOT NULL DEFAULT 'openai'`,
   `ALTER TABLE sync_logs ADD COLUMN models_removed INTEGER DEFAULT 0`,
+  `DROP TABLE IF EXISTS gateway_keys`,
+  `CREATE TABLE IF NOT EXISTS gateway_keys (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    key_plain TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
 ]
 
 for (const sql of migrations) {

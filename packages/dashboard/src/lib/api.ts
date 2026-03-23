@@ -126,8 +126,21 @@ export const syncProvider = (id: string) =>
 export const getSyncHistory = (id: string) =>
   request<Array<Record<string, unknown>>>(`/providers/${id}/sync-history`)
 
+// Model Preferences
+export interface ModelPreference {
+  canonical: string
+  preference: 'favorite' | 'blacklist'
+  updatedAt: string
+}
+
 // Models
 export const getModels = () => request<ModelDeployment[]>('/models')
+export const getModelPreferences = () => request<ModelPreference[]>('/models/preferences')
+export const setModelPreferences = (canonicals: string[], preference: 'favorite' | 'blacklist' | null) =>
+  request<{ ok: boolean }>('/models/preferences', {
+    method: 'PUT',
+    body: JSON.stringify({ canonicals, preference }),
+  })
 export const updateModelPrice = (deploymentId: string, priceInput: number | null, priceOutput: number | null) =>
   request<{ ok: boolean }>(`/models/${deploymentId}/price`, {
     method: 'PUT',
@@ -135,14 +148,28 @@ export const updateModelPrice = (deploymentId: string, priceInput: number | null
   })
 
 // Keys
-export const getKeys = () => request<Array<{ id: string; name: string; keyPrefix: string; createdAt: string }>>('/keys')
+export interface GatewayKey {
+  id: string
+  name: string
+  keyPlain: string
+  createdAt: string
+}
+
+export interface KeyUsage {
+  byModel: Array<{ model: string; requests: number; inputTokens: number; outputTokens: number; cost: number }>
+  byDay: Array<{ date: string; requests: number; cost: number }>
+}
+
+export const getKeys = () => request<GatewayKey[]>('/keys')
 export const createKey = (name: string) =>
-  request<{ id: string; name: string; key: string; keyPrefix: string }>('/keys', {
+  request<GatewayKey>('/keys', {
     method: 'POST',
     body: JSON.stringify({ name }),
   })
 export const deleteKey = (id: string) =>
   request<{ ok: boolean }>(`/keys/${id}`, { method: 'DELETE' })
+export const getKeyUsage = (id: string) =>
+  request<KeyUsage>(`/keys/${id}/usage`)
 
 // Health
 export const getHealth = () => request<{ status: string; timestamp: string }>('/health')
