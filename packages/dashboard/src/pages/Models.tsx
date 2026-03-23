@@ -643,13 +643,32 @@ interface DeploymentRowProps {
   showScore: boolean
 }
 
-function ProviderLogo({ providerId }: { providerId: string }) {
+function vendorSlug(canonical: string): string {
+  const c = canonical.toLowerCase()
+  if (c.startsWith('gpt-') || c.startsWith('o1') || c.startsWith('o3') || c.startsWith('o4') || c.startsWith('chatgpt') || c.startsWith('dall-e') || c.startsWith('text-embedding')) return 'openai'
+  if (c.startsWith('claude-')) return 'anthropic'
+  if (c.startsWith('gemini-') || c.startsWith('palm')) return 'google'
+  if (c.startsWith('llama') || c.startsWith('meta-llama')) return 'meta'
+  if (c.startsWith('mistral') || c.startsWith('mixtral')) return 'mistral'
+  if (c.startsWith('qwen') || c.startsWith('qwq')) return 'qwen'
+  if (c.startsWith('deepseek')) return 'deepseek'
+  if (c.startsWith('phi')) return 'microsoft'
+  if (c.startsWith('command') || c.startsWith('rerank')) return 'cohere'
+  if (c.startsWith('nova') || c.startsWith('titan') || c.startsWith('amazon')) return 'amazon'
+  if (c.startsWith('grok')) return 'xai'
+  return ''
+}
+
+function ProviderLogo({ canonical }: { canonical: string }) {
+  const slug = vendorSlug(canonical)
+  if (!slug) return null
   return (
     <img
-      src={`https://models.dev/logos/${providerId}.svg`}
+      src={`https://models.dev/logos/${slug}.svg`}
       alt=""
       width={16}
       height={16}
+      referrerPolicy="no-referrer"
       style={{ verticalAlign: 'middle', marginRight: 6, flexShrink: 0 }}
       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
     />
@@ -668,7 +687,7 @@ function DeploymentRow({
         <td></td>
         <td></td>
         <td style={{ paddingLeft: 40 }}>
-          <ProviderLogo providerId={deployment.providerId} />
+          <ProviderLogo canonical={deployment.canonical} />
           <span className="badge" style={{ fontSize: 11, marginRight: 8 }}>{providerLabel}</span>
           <span style={{ color: 'var(--text-secondary)' }}>{deployment.upstream}</span>
         </td>
