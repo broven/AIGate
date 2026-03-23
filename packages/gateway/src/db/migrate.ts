@@ -115,13 +115,9 @@ const migrations = [
   `DELETE FROM model_deployments WHERE status = 'stale'`,
   `ALTER TABLE providers ADD COLUMN api_format TEXT NOT NULL DEFAULT 'openai'`,
   `ALTER TABLE sync_logs ADD COLUMN models_removed INTEGER DEFAULT 0`,
-  `DROP TABLE IF EXISTS gateway_keys`,
-  `CREATE TABLE IF NOT EXISTS gateway_keys (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    key_plain TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`,
+  `ALTER TABLE gateway_keys ADD COLUMN key_plain TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE gateway_keys DROP COLUMN key_hash`,
+  `ALTER TABLE gateway_keys DROP COLUMN key_prefix`,
 ]
 
 for (const sql of migrations) {
