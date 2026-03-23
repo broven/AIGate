@@ -33,6 +33,101 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+function ConfigGuide({ apiKey, gatewayUrl }: { apiKey: string; gatewayUrl: string }) {
+  const [activeTab, setActiveTab] = useState<'claude' | 'codex' | 'curl'>('claude')
+
+  const tabs: { key: typeof activeTab; label: string }[] = [
+    { key: 'claude', label: 'Claude Code' },
+    { key: 'codex', label: 'Codex CLI' },
+    { key: 'curl', label: 'cURL' },
+  ]
+
+  const snippets: Record<typeof activeTab, string> = {
+    claude: [
+      `# Add to your ~/.claude/settings.json`,
+      `{`,
+      `  "ANTHROPIC_API_KEY": "${apiKey}",`,
+      `  "ANTHROPIC_BASE_URL": "${gatewayUrl}"`,
+      `}`,
+      ``,
+      `# Or use environment variables`,
+      `export ANTHROPIC_API_KEY="${apiKey}"`,
+      `export ANTHROPIC_BASE_URL="${gatewayUrl}"`,
+    ].join('\n'),
+    codex: [
+      `# Add to your ~/.codex/config.toml`,
+      ``,
+      `[provider]`,
+      `name = "aigate"`,
+      `base_url = "${gatewayUrl}/v1"`,
+      `wire_api = "chat"          # AIGate uses Chat Completions API`,
+      `env_key = "AIGATE_API_KEY" # or paste your key below`,
+      ``,
+      `# Then set the environment variable`,
+      `export AIGATE_API_KEY="${apiKey}"`,
+    ].join('\n'),
+    curl: [
+      `curl ${gatewayUrl}/v1/chat/completions \\`,
+      `  -H "Authorization: Bearer ${apiKey}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '{`,
+      `    "model": "gpt-4o",`,
+      `    "messages": [{"role": "user", "content": "Hello!"}]`,
+      `  }'`,
+    ].join('\n'),
+  }
+
+  const tabBarStyle: React.CSSProperties = {
+    display: 'flex',
+    gap: 0,
+    borderBottom: '1px solid var(--border)',
+    marginBottom: 12,
+  }
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '6px 16px',
+    fontSize: 12,
+    fontWeight: active ? 600 : 400,
+    color: active ? 'var(--accent-blue)' : 'var(--text-secondary)',
+    background: 'none',
+    border: 'none',
+    borderBottom: active ? '2px solid var(--accent-blue)' : '2px solid transparent',
+    cursor: 'pointer',
+    transition: 'color 0.15s, border-color 0.15s',
+  })
+
+  return (
+    <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        Quick Setup
+      </div>
+      <div style={tabBarStyle}>
+        {tabs.map((t) => (
+          <button key={t.key} style={tabStyle(activeTab === t.key)} onClick={() => setActiveTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ position: 'relative' }}>
+        <pre className="mono" style={{
+          background: 'var(--color-bg)',
+          padding: 14,
+          borderRadius: 6,
+          overflow: 'auto',
+          fontSize: 12,
+          lineHeight: 1.6,
+          margin: 0,
+        }}>
+          {snippets[activeTab]}
+        </pre>
+        <span style={{ position: 'absolute', top: 8, right: 8 }}>
+          <CopyButton text={snippets[activeTab]} />
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function KeyUsagePanel({ keyId, onStats }: { keyId: string; onStats?: (stats: { requests: number; tokens: number; cost: number }) => void }) {
   const [usage, setUsage] = useState<KeyUsage | null>(null)
   const [loading, setLoading] = useState(true)
@@ -270,6 +365,7 @@ export default function ApiKeys() {
                         <tr key={`${key.id}-usage`}>
                           <td colSpan={8} style={{ padding: 0, background: 'var(--bg-primary)' }}>
                             <KeyUsagePanel keyId={key.id} onStats={handleKeyStats(key.id)} />
+                            <ConfigGuide apiKey={key.keyPlain} gatewayUrl={window.location.origin} />
                           </td>
                         </tr>
                       )}
