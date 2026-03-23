@@ -182,6 +182,7 @@ export interface BenchmarkPoint {
 export interface BenchmarkData {
   dimensions: string[]
   points: BenchmarkPoint[]
+  configured: boolean
 }
 
 export const getBenchmarks = () => request<BenchmarkData>('/benchmarks')

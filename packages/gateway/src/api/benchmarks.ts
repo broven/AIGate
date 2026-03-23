@@ -5,8 +5,7 @@ import { canonicalize } from '../sync/canonicalize'
 
 const app = new Hono()
 
-// --- Artificial Analysis API cache ---
-let aaCache: { data: any[]; fetchedAt: number } | null = null
+const AA_CACHE_KEY = 'aa_models'
 const CACHE_TTL = 24 * 60 * 60 * 1000 // 24h
 
 const DIMENSIONS = [
@@ -31,23 +30,45 @@ async function fetchAA(): Promise<any[]> {
   const apiToken = process.env.Artificial_Analysis_api_token
   if (!apiToken) return []
 
-  // Return cached data if still fresh
-  if (aaCache && Date.now() - aaCache.fetchedAt < CACHE_TTL) {
-    return aaCache.data
+  // Check DB cache
+  const cached = await db.select().from(schema.kvCache).where(eq(schema.kvCache.key, AA_CACHE_KEY)).get()
+  if (cached) {
+    const age = Date.now() - new Date(cached.updatedAt + 'Z').getTime()
+    if (age < CACHE_TTL) {
+      return JSON.parse(cached.value)
+    }
   }
 
   try {
     const resp = await fetch('https://artificialanalysis.ai/api/v2/data/llms/models', {
       headers: { 'x-api-key': apiToken },
     })
+    if (!resp.ok) {
+      console.error(`[benchmarks] AA API returned ${resp.status}`)
+      if (cached) return JSON.parse(cached.value)
+      return []
+    }
     const json = (await resp.json()) as { data?: any[] }
     const data = json.data ?? []
-    aaCache = { data, fetchedAt: Date.now() }
+    if (data.length === 0) {
+      // Don't cache empty responses — likely an API issue
+      if (cached) return JSON.parse(cached.value)
+      return []
+    }
+
+    // Upsert into DB cache
+    await db.insert(schema.kvCache)
+      .values({ key: AA_CACHE_KEY, value: JSON.stringify(data), updatedAt: new Date().toISOString() })
+      .onConflictDoUpdate({
+        target: schema.kvCache.key,
+        set: { value: JSON.stringify(data), updatedAt: new Date().toISOString() },
+      })
+
     return data
   } catch (err) {
     console.error('[benchmarks] Failed to fetch AA data:', err)
-    // Return stale cache if available
-    if (aaCache) return aaCache.data
+    // Return stale DB cache if available
+    if (cached) return JSON.parse(cached.value)
     return []
   }
 }
@@ -108,7 +129,7 @@ app.get('/benchmarks', async (c) => {
     })
   }
 
-  return c.json({ dimensions: DIMENSIONS, points })
+  return c.json({ dimensions: DIMENSIONS, points, configured: !!process.env.Artificial_Analysis_api_token })
 })
 
 export default app

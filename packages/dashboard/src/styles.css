@@ -801,6 +801,70 @@ tr.expanded-content:hover td {
   accent-color: var(--accent-blue);
 }
 
+/* Sortable table headers */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.sortable-th:hover {
+  color: var(--text-primary);
+}
+
+.sort-indicator {
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* Benchmark unconfigured overlay */
+.benchmark-unconfigured {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.benchmark-unconfigured-icon {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+.benchmark-unconfigured-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.benchmark-unconfigured-text {
+  color: var(--text-secondary);
+  max-width: 400px;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.benchmark-unconfigured-text code {
+  font-family: var(--font-mono);
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--accent-blue);
+  font-size: 12px;
+}
+
+.benchmark-unconfigured-link {
+  color: var(--accent-blue);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.benchmark-unconfigured-link:hover {
+  text-decoration: underline;
+}
+
 .chart-tooltip {
   background: var(--bg-surface);
   border: 1px solid var(--border);

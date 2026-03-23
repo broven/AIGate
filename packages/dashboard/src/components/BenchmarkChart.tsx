@@ -116,7 +116,7 @@ export function BenchmarkChart({ data, loading }: BenchmarkChartProps) {
     <div className="section">
       <div className="section-header">
         <h2 className="section-title">Benchmark vs Price</h2>
-        <div className="chart-controls">
+        {data?.configured !== false && <div className="chart-controls">
           <select
             value={selectedDimension}
             onChange={e => setSelectedDimension(e.target.value)}
@@ -154,12 +154,23 @@ export function BenchmarkChart({ data, loading }: BenchmarkChartProps) {
               </div>
             )}
           </div>
-        </div>
+        </div>}
       </div>
 
       {loading || !data ? (
         <div className="chart-container" style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span style={{ color: 'var(--text-secondary)' }}>Loading benchmark data...</span>
+        </div>
+      ) : !data.configured ? (
+        <div className="chart-container benchmark-unconfigured" style={{ height: 400 }}>
+          <div className="benchmark-unconfigured-icon">&#x1f4ca;</div>
+          <div className="benchmark-unconfigured-title">Benchmark Data Not Configured</div>
+          <div className="benchmark-unconfigured-text">
+            Set the <code>Artificial_Analysis_api_token</code> environment variable to enable benchmark vs price comparisons.
+          </div>
+          <a href="https://artificialanalysis.ai" target="_blank" rel="noopener noreferrer" className="benchmark-unconfigured-link">
+            Get an API key from Artificial Analysis &rarr;
+          </a>
         </div>
       ) : filteredGroups.length === 0 ? (
         <div className="chart-container" style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

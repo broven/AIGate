@@ -108,6 +108,14 @@ sqlite.exec(`
   );
 `)
 
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS kv_cache (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`)
+
 // Migrations for existing databases
 const migrations = [
   `ALTER TABLE model_deployments ADD COLUMN api_key TEXT`,
