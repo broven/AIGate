@@ -1,3 +1,4 @@
+// @ts-expect-error — no type declarations available
 import Server from '@musistudio/llms'
 import type { UniversalRequest, UniversalMessage, ContentPart, ToolCall, ToolDefinition } from '@aigate/shared'
 import { nanoid } from '../utils'

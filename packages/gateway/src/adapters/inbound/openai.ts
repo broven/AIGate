@@ -164,7 +164,7 @@ export function formatOpenAIStreamChunk(
   }
 }
 
-export function formatOpenAIError(message: string, type: string, code: string | number) {
+export function formatOpenAIError(message: string, type: string, code?: string | number) {
   return {
     error: { message, type, code },
   }
