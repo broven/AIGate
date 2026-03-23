@@ -144,5 +144,20 @@ export const createKey = (name: string) =>
 export const deleteKey = (id: string) =>
   request<{ ok: boolean }>(`/keys/${id}`, { method: 'DELETE' })
 
+// Benchmarks
+export interface BenchmarkPoint {
+  canonical: string
+  providerId: string
+  blendedPrice: number
+  benchmarks: Record<string, number | null>
+}
+
+export interface BenchmarkData {
+  dimensions: string[]
+  points: BenchmarkPoint[]
+}
+
+export const getBenchmarks = () => request<BenchmarkData>('/benchmarks')
+
 // Health
 export const getHealth = () => request<{ status: string; timestamp: string }>('/health')

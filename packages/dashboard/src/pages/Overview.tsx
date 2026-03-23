@@ -1,7 +1,8 @@
 import { useCallback } from 'react'
-import { getStats, getLogs, type LogEntry } from '../lib/api'
+import { getStats, getLogs, getBenchmarks, type LogEntry } from '../lib/api'
 import { usePolling } from '../hooks/usePolling'
 import { FallbackChain } from '../components/FallbackChain'
+import { BenchmarkChart } from '../components/BenchmarkChart'
 
 function formatCost(n: number): string {
   return `$${n.toFixed(4)}`
@@ -16,8 +17,10 @@ export default function Overview() {
   const fetchStats = useCallback(() => getStats(), [])
   const fetchLogs = useCallback(() => getLogs({ limit: 20 }), [])
 
+  const fetchBenchmarks = useCallback(() => getBenchmarks(), [])
   const { data: stats, loading: statsLoading } = usePolling(fetchStats, 5000)
   const { data: logs, loading: logsLoading } = usePolling(fetchLogs, 5000)
+  const { data: benchmarks, loading: benchmarksLoading } = usePolling(fetchBenchmarks, 60000)
 
   return (
     <div>
@@ -43,6 +46,8 @@ export default function Overview() {
           <div className="value">{statsLoading ? '—' : stats?.activeProviders}</div>
         </div>
       </div>
+
+      <BenchmarkChart data={benchmarks} loading={benchmarksLoading} />
 
       <div className="section">
         <div className="section-header">
