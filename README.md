@@ -63,6 +63,7 @@ volumes:
 
 ```bash
 pnpm install
+cp .env.example .env       # then edit .env and set ADMIN_TOKEN
 pnpm dev
 ```
 
