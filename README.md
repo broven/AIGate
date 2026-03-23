@@ -21,7 +21,6 @@ docker run -d \
   --name aigate \
   -p 3000:3000 \
   -e ADMIN_TOKEN=your-secret-token \
-  -e Artificial_Analysis_api_token=your-aa-token \
   -v aigate-data:/app/packages/gateway/data \
   ghcr.io/broven/aigate:latest
 ```
@@ -35,7 +34,6 @@ docker run -d \
   --name aigate \
   -p 8080:3000 \
   -e ADMIN_TOKEN=your-secret-token \
-  -e Artificial_Analysis_api_token=your-aa-token \
   -v aigate-data:/app/packages/gateway/data \
   ghcr.io/broven/aigate:latest
 ```
@@ -52,7 +50,6 @@ services:
       - "3000:3000"
     environment:
       - ADMIN_TOKEN=your-secret-token   # Required: dashboard login token
-      - Artificial_Analysis_api_token=your-aa-token  # Optional: enables benchmark charts
     volumes:
       - aigate-data:/app/packages/gateway/data
 
@@ -77,7 +74,7 @@ All configuration is via environment variables. Everything has sensible defaults
 |----------|---------|-------------|
 | `ADMIN_TOKEN` | *(required)* | Token for dashboard authentication |
 | `DATABASE_URL` | `./data/aigate.db` | SQLite database path |
-| `Artificial_Analysis_api_token` | *(optional)* | API key from [Artificial Analysis](https://artificialanalysis.ai) — enables the benchmark vs price chart on the dashboard |
+| `ARTIFICIAL_ANALYSIS_API_TOKEN` | *(optional)* | API key for [benchmark charts](#benchmark-charts) |
 
 Data is stored in a single SQLite file at the `DATABASE_URL` path. The database and tables are created automatically on first start. In Docker, this defaults to `/app/packages/gateway/data/aigate.db` — make sure to mount a volume at `/app/packages/gateway/data` to persist data.
 
@@ -180,6 +177,37 @@ All endpoints accept auth via `Authorization: Bearer <key>` or `x-api-key: <key>
 | OpenAI → Anthropic | Supported |
 | Gemini → OpenAI | Supported |
 | Others | Returns 501 error |
+
+## Benchmark Charts
+
+The dashboard includes a benchmark vs price scatter chart powered by [Artificial Analysis](https://artificialanalysis.ai). This is optional — the dashboard works fine without it, and you'll see a prompt on the Overview page when it's not configured.
+
+To enable it:
+
+1. Get an API key from [artificialanalysis.ai](https://artificialanalysis.ai)
+2. Add the environment variable to your container:
+
+**Docker:**
+
+```bash
+docker run -d \
+  --name aigate \
+  -p 3000:3000 \
+  -e ADMIN_TOKEN=your-secret-token \
+  -e ARTIFICIAL_ANALYSIS_API_TOKEN=your-aa-token \
+  -v aigate-data:/app/packages/gateway/data \
+  ghcr.io/broven/aigate:latest
+```
+
+**Docker Compose** — add to your `environment` section:
+
+```yaml
+    environment:
+      - ADMIN_TOKEN=your-secret-token
+      - ARTIFICIAL_ANALYSIS_API_TOKEN=your-aa-token
+```
+
+Benchmark data is cached for 24 hours to minimize API calls.
 
 ## Architecture
 

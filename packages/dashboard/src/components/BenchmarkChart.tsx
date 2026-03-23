@@ -166,7 +166,8 @@ export function BenchmarkChart({ data, loading }: BenchmarkChartProps) {
           <div className="benchmark-unconfigured-icon">&#x1f4ca;</div>
           <div className="benchmark-unconfigured-title">Benchmark Data Not Configured</div>
           <div className="benchmark-unconfigured-text">
-            Set the <code>Artificial_Analysis_api_token</code> environment variable to enable benchmark vs price comparisons.
+            Set the <code>ARTIFICIAL_ANALYSIS_API_TOKEN</code> environment variable to enable benchmark vs price comparisons.
+            See the <a href="https://github.com/broven/AIGate#benchmark-charts" target="_blank" rel="noopener noreferrer">setup guide</a> for details.
           </div>
           <a href="https://artificialanalysis.ai" target="_blank" rel="noopener noreferrer" className="benchmark-unconfigured-link">
             Get an API key from Artificial Analysis &rarr;

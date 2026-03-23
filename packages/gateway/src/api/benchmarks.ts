@@ -27,7 +27,7 @@ const DIMENSIONS = [
 ]
 
 async function fetchAA(): Promise<any[]> {
-  const apiToken = process.env.Artificial_Analysis_api_token
+  const apiToken = process.env.ARTIFICIAL_ANALYSIS_API_TOKEN
   if (!apiToken) return []
 
   // Check DB cache
@@ -129,7 +129,7 @@ app.get('/benchmarks', async (c) => {
     })
   }
 
-  return c.json({ dimensions: DIMENSIONS, points, configured: !!process.env.Artificial_Analysis_api_token })
+  return c.json({ dimensions: DIMENSIONS, points, configured: !!process.env.ARTIFICIAL_ANALYSIS_API_TOKEN })
 })
 
 export default app
