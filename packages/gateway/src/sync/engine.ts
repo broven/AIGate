@@ -55,6 +55,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
       await db
         .update(schema.modelDeployments)
         .set({
+          canonical: model.canonical,
           upstream: model.upstream,
           apiKey: model.apiKey,
           priceInput: model.priceInput,
