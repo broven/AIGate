@@ -643,6 +643,19 @@ interface DeploymentRowProps {
   showScore: boolean
 }
 
+function ProviderLogo({ providerId }: { providerId: string }) {
+  return (
+    <img
+      src={`https://models.dev/logos/${providerId}.svg`}
+      alt=""
+      width={16}
+      height={16}
+      style={{ verticalAlign: 'middle', marginRight: 6, flexShrink: 0 }}
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+    />
+  )
+}
+
 function DeploymentRow({
   deployment, editValue, onEditField, dirty, onSave, isSaving, error, providerLabel, showScore,
 }: DeploymentRowProps) {
@@ -655,6 +668,7 @@ function DeploymentRow({
         <td></td>
         <td></td>
         <td style={{ paddingLeft: 40 }}>
+          <ProviderLogo providerId={deployment.providerId} />
           <span className="badge" style={{ fontSize: 11, marginRight: 8 }}>{providerLabel}</span>
           <span style={{ color: 'var(--text-secondary)' }}>{deployment.upstream}</span>
         </td>
