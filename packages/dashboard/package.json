@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "portless aigate vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
