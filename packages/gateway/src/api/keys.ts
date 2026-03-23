@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
+import { sql, eq, and } from 'drizzle-orm'
 import { db, schema } from '../db'
-import { nanoid, hashKey, generateApiKey } from '../utils'
+import { nanoid, generateApiKey } from '../utils'
 
 const app = new Hono()
 
@@ -10,7 +10,7 @@ app.get('/', async (c) => {
   const rows = await db.select({
     id: schema.gatewayKeys.id,
     name: schema.gatewayKeys.name,
-    keyPrefix: schema.gatewayKeys.keyPrefix,
+    keyPlain: schema.gatewayKeys.keyPlain,
     createdAt: schema.gatewayKeys.createdAt,
   }).from(schema.gatewayKeys)
 
@@ -32,12 +32,10 @@ app.post('/', async (c) => {
   await db.insert(schema.gatewayKeys).values({
     id,
     name,
-    keyHash: hashKey(rawKey),
-    keyPrefix: rawKey.slice(0, 8),
+    keyPlain: rawKey,
   })
 
-  // Return the raw key ONCE — it cannot be retrieved again
-  return c.json({ id, name, key: rawKey, keyPrefix: rawKey.slice(0, 8) }, 201)
+  return c.json({ id, name, keyPlain: rawKey }, 201)
 })
 
 // DELETE /api/keys/:id
@@ -45,6 +43,58 @@ app.delete('/:id', async (c) => {
   const id = c.req.param('id')
   await db.delete(schema.gatewayKeys).where(eq(schema.gatewayKeys.id, id))
   return c.json({ ok: true })
+})
+
+// GET /api/keys/:id/usage
+app.get('/:id/usage', async (c) => {
+  const id = c.req.param('id')
+
+  // Look up key name
+  const [keyRow] = await db
+    .select({ name: schema.gatewayKeys.name })
+    .from(schema.gatewayKeys)
+    .where(eq(schema.gatewayKeys.id, id))
+    .limit(1)
+
+  if (!keyRow) {
+    return c.json({ error: { message: 'Key not found' } }, 404)
+  }
+
+  // Per-model aggregation
+  const byModel = await db
+    .select({
+      model: schema.dailyUsage.model,
+      requests: sql<number>`coalesce(sum(request_count), 0)`,
+      inputTokens: sql<number>`coalesce(sum(total_input_tokens), 0)`,
+      outputTokens: sql<number>`coalesce(sum(total_output_tokens), 0)`,
+      cost: sql<number>`coalesce(sum(total_cost), 0)`,
+    })
+    .from(schema.dailyUsage)
+    .where(eq(schema.dailyUsage.gatewayKey, keyRow.name))
+    .groupBy(schema.dailyUsage.model)
+
+  // Per-day aggregation (last 30 days)
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const since = thirtyDaysAgo.toISOString().slice(0, 10)
+
+  const byDay = await db
+    .select({
+      date: schema.dailyUsage.date,
+      requests: sql<number>`coalesce(sum(request_count), 0)`,
+      cost: sql<number>`coalesce(sum(total_cost), 0)`,
+    })
+    .from(schema.dailyUsage)
+    .where(
+      and(
+        eq(schema.dailyUsage.gatewayKey, keyRow.name),
+        sql`${schema.dailyUsage.date} >= ${since}`,
+      ),
+    )
+    .groupBy(schema.dailyUsage.date)
+    .orderBy(schema.dailyUsage.date)
+
+  return c.json({ byModel, byDay })
 })
 
 export default app

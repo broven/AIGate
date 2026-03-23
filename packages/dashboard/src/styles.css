@@ -723,6 +723,20 @@ tr:last-child td {
   cursor: not-allowed;
 }
 
+/* Expandable table rows */
+tr.expandable {
+  cursor: pointer;
+}
+
+tr.expanded-content td {
+  background: var(--bg-primary);
+  padding: 0;
+}
+
+tr.expanded-content:hover td {
+  background: var(--bg-primary);
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
   .sidebar {
