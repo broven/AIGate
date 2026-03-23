@@ -334,13 +334,9 @@ export default function Models() {
           }}
         />
         <select
+          className="filter-select"
           value={providerFilter}
           onChange={(e) => setProviderFilter(e.target.value)}
-          style={{
-            padding: '6px 12px', background: 'var(--bg-primary)',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-primary)', fontSize: 13,
-          }}
         >
           <option value="">All Providers</option>
           {providerOptions.map((p) => (
@@ -348,13 +344,9 @@ export default function Models() {
           ))}
         </select>
         <select
+          className="filter-select"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as '' | 'active' | 'stale')}
-          style={{
-            padding: '6px 12px', background: 'var(--bg-primary)',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-primary)', fontSize: 13,
-          }}
         >
           <option value="">All Status</option>
           <option value="active">Active</option>
@@ -364,19 +356,17 @@ export default function Models() {
 
       {/* Batch action bar */}
       {selected.size > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', padding: '8px 12px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-          <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            {selected.size} selected
-          </span>
-          <button className="btn" onClick={() => handleBatchPreference('favorite')} style={{ padding: '4px 10px', fontSize: 12 }}>
-            ★ Favorite
+        <div className="batch-bar">
+          <span className="batch-count">{selected.size} selected</span>
+          <button className="btn" onClick={() => handleBatchPreference('favorite')}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--accent-yellow)" stroke="var(--accent-yellow)" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+            Favorite
           </button>
-          <button className="btn" onClick={() => handleBatchPreference('blacklist')} style={{ padding: '4px 10px', fontSize: 12 }}>
-            ⊘ Blacklist
+          <button className="btn" onClick={() => handleBatchPreference('blacklist')}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-red)" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
+            Blacklist
           </button>
-          <button className="btn" onClick={() => handleBatchPreference(null)} style={{ padding: '4px 10px', fontSize: 12 }}>
-            Clear
-          </button>
+          <button className="btn" onClick={() => handleBatchPreference(null)}>Clear</button>
         </div>
       )}
 
@@ -390,8 +380,8 @@ export default function Models() {
           <table>
             <thead>
               <tr>
-                <th style={{ width: 28 }}>
-                  <input type="checkbox"
+                <th style={{ width: 32, textAlign: 'center' }}>
+                  <input type="checkbox" className="custom-checkbox"
                     checked={filtered.length > 0 && filtered.every((g) => selected.has(g.canonical))}
                     onChange={(e) => {
                       if (e.target.checked) setSelected(new Set(filtered.map((g) => g.canonical)))
@@ -399,7 +389,7 @@ export default function Models() {
                     }}
                   />
                 </th>
-                <th style={{ width: 60 }}></th>
+                <th style={{ width: 64 }}></th>
                 <th>Model</th>
                 <th>Deployments</th>
                 <th>Price Range (in / out)</th>
@@ -487,23 +477,23 @@ function ModelGroup({
           opacity: isBlacklisted ? 0.5 : 1,
         }}
       >
-        <td style={{ width: 28 }} onClick={(e) => e.stopPropagation()}>
-          <input type="checkbox" checked={isSelected} onChange={onToggleSelect} />
+        <td style={{ width: 32, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" className="custom-checkbox" checked={isSelected} onChange={onToggleSelect} />
         </td>
-        <td style={{ width: 60, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+        <td style={{ width: 64, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
           <button
+            className={`pref-btn pref-btn-fav${isFavorite ? ' active' : ''}`}
             onClick={() => onTogglePreference(canonical, 'favorite')}
             title={isFavorite ? 'Remove favorite' : 'Favorite'}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, opacity: isFavorite ? 1 : 0.3, padding: '0 2px' }}
           >
-            ★
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
           </button>
           <button
+            className={`pref-btn pref-btn-ban${isBlacklisted ? ' active' : ''}`}
             onClick={() => onTogglePreference(canonical, 'blacklist')}
             title={isBlacklisted ? 'Remove blacklist' : 'Blacklist'}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, opacity: isBlacklisted ? 1 : 0.3, padding: '0 2px' }}
           >
-            ⊘
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
           </button>
         </td>
         <td>

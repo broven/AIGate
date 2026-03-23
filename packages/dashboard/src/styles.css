@@ -435,6 +435,163 @@ tr:last-child td {
   margin-bottom: 16px;
 }
 
+/* Custom checkbox */
+.custom-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s;
+  vertical-align: middle;
+}
+
+.custom-checkbox:hover {
+  border-color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.custom-checkbox:checked {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+.custom-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Preference icon buttons */
+.pref-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.pref-btn svg {
+  width: 15px;
+  height: 15px;
+  transition: all 0.15s;
+}
+
+.pref-btn-fav svg {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2;
+}
+
+.pref-btn-fav:hover {
+  background: rgba(234, 179, 8, 0.1);
+}
+
+.pref-btn-fav:hover svg {
+  stroke: var(--accent-yellow);
+}
+
+.pref-btn-fav.active svg {
+  fill: var(--accent-yellow);
+  stroke: var(--accent-yellow);
+}
+
+.pref-btn-ban svg {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 2;
+}
+
+.pref-btn-ban:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.pref-btn-ban:hover svg {
+  stroke: var(--accent-red);
+}
+
+.pref-btn-ban.active svg {
+  stroke: var(--accent-red);
+  fill: rgba(239, 68, 68, 0.15);
+}
+
+/* Batch action bar */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+  animation: batchIn 0.15s ease;
+}
+
+.batch-bar .batch-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-blue);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.batch-bar .btn {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+@keyframes batchIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Filter select */
+.filter-select {
+  padding: 6px 28px 6px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23737373' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: all 0.15s;
+}
+
+.filter-select:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  color: var(--text-primary);
+}
+
 /* Mono text */
 .mono {
   font-family: var(--font-mono);
