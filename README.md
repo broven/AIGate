@@ -21,6 +21,7 @@ docker run -d \
   --name aigate \
   -p 3000:3000 \
   -e ADMIN_TOKEN=your-secret-token \
+  -e Artificial_Analysis_api_token=your-aa-token \
   -v aigate-data:/app/packages/gateway/data \
   ghcr.io/broven/aigate:latest
 ```
@@ -34,6 +35,7 @@ docker run -d \
   --name aigate \
   -p 8080:3000 \
   -e ADMIN_TOKEN=your-secret-token \
+  -e Artificial_Analysis_api_token=your-aa-token \
   -v aigate-data:/app/packages/gateway/data \
   ghcr.io/broven/aigate:latest
 ```
@@ -50,6 +52,7 @@ services:
       - "3000:3000"
     environment:
       - ADMIN_TOKEN=your-secret-token   # Required: dashboard login token
+      - Artificial_Analysis_api_token=your-aa-token  # Optional: enables benchmark charts
     volumes:
       - aigate-data:/app/packages/gateway/data
 
@@ -74,6 +77,7 @@ All configuration is via environment variables. Everything has sensible defaults
 |----------|---------|-------------|
 | `ADMIN_TOKEN` | *(required)* | Token for dashboard authentication |
 | `DATABASE_URL` | `./data/aigate.db` | SQLite database path |
+| `Artificial_Analysis_api_token` | *(optional)* | API key from [Artificial Analysis](https://artificialanalysis.ai) — enables the benchmark vs price chart on the dashboard |
 
 Data is stored in a single SQLite file at the `DATABASE_URL` path. The database and tables are created automatically on first start. In Docker, this defaults to `/app/packages/gateway/data/aigate.db` — make sure to mount a volume at `/app/packages/gateway/data` to persist data.
 

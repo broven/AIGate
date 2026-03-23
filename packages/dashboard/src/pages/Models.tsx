@@ -13,8 +13,26 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { getModels, getProviders, getModelPreferences, setModelPreferences, updateModelPrice, type ModelDeployment, type Provider } from '../lib/api'
+import { getModels, getProviders, getModelPreferences, setModelPreferences, updateModelPrice, getBenchmarks, type ModelDeployment, type Provider } from '../lib/api'
 import { usePolling } from '../hooks/usePolling'
+
+const DIMENSION_LABELS: Record<string, string> = {
+  artificial_analysis_intelligence_index: 'Intelligence Index',
+  artificial_analysis_coding_index: 'Coding Index',
+  artificial_analysis_math_index: 'Math Index',
+  mmlu_pro: 'MMLU Pro',
+  gpqa: 'GPQA',
+  hle: 'HLE',
+  livecodebench: 'LiveCodeBench',
+  scicode: 'SciCode',
+  math_500: 'MATH-500',
+  aime: 'AIME',
+  aime_25: 'AIME 2025',
+  ifbench: 'IFBench',
+  lcr: 'LCR',
+  terminalbench_hard: 'TerminalBench Hard',
+  tau2: 'TAU2',
+}
 
 interface PriceEdit {
   input: string
@@ -70,6 +88,11 @@ export default function Models() {
   const fetchModels = useCallback(() => getModels(), [])
   const { data: models, error: modelError, loading: modelLoading } = usePolling(fetchModels, 30000)
 
+  // Benchmarks: poll every 60s
+  const fetchBenchmarks = useCallback(() => getBenchmarks(), [])
+  const { data: benchmarks } = usePolling(fetchBenchmarks, 60000)
+  const hasBenchmarks = benchmarks?.configured === true
+
   // Derived state
   const providerMap = useMemo(() => {
     if (!providers) return new Map<string, Provider>()
@@ -93,10 +116,25 @@ export default function Models() {
   const [providerFilter, setProviderFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | 'active' | 'stale'>('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectedDimension, setSelectedDimension] = useState('artificial_analysis_intelligence_index')
+  const [sortBy, setSortBy] = useState<'name' | 'deployments' | 'score'>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   // Block page on either fetch error
   const error = modelError?.message || providerError
   const loading = modelLoading || providers === null
+
+  // Benchmark lookup: canonical → { dim → score }
+  const benchmarkMap = useMemo(() => {
+    const map = new Map<string, Record<string, number | null>>()
+    if (!benchmarks?.points) return map
+    for (const point of benchmarks.points) {
+      if (!map.has(point.canonical)) {
+        map.set(point.canonical, point.benchmarks)
+      }
+    }
+    return map
+  }, [benchmarks])
 
   // Group models by canonical
   const groups = useMemo(() => {
@@ -115,9 +153,22 @@ export default function Models() {
         const tierA = prefA === 'favorite' ? 0 : prefA === 'blacklist' ? 2 : 1
         const tierB = prefB === 'favorite' ? 0 : prefB === 'blacklist' ? 2 : 1
         if (tierA !== tierB) return tierA - tierB
-        return a.canonical.localeCompare(b.canonical)
+
+        const dir = sortDir === 'asc' ? 1 : -1
+        if (sortBy === 'deployments') {
+          return (a.deployments.length - b.deployments.length) * dir
+        }
+        if (sortBy === 'score') {
+          const scoreA = benchmarkMap.get(a.canonical)?.[selectedDimension] ?? null
+          const scoreB = benchmarkMap.get(b.canonical)?.[selectedDimension] ?? null
+          if (scoreA === null && scoreB === null) return a.canonical.localeCompare(b.canonical)
+          if (scoreA === null) return 1
+          if (scoreB === null) return -1
+          return (scoreA - scoreB) * dir
+        }
+        return a.canonical.localeCompare(b.canonical) * dir
       })
-  }, [models, preferences])
+  }, [models, preferences, sortBy, sortDir, benchmarkMap, selectedDimension])
 
   // Filter groups
   const filtered = useMemo(() => {
@@ -147,6 +198,20 @@ export default function Models() {
     return ids.map((id) => ({ id, label: id }))
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [models, providerMap])
+
+  function handleSort(col: 'name' | 'deployments' | 'score') {
+    if (sortBy === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(col)
+      setSortDir(col === 'score' ? 'desc' : 'asc')
+    }
+  }
+
+  function sortIndicator(col: 'name' | 'deployments' | 'score') {
+    if (sortBy !== col) return null
+    return <span className="sort-indicator">{sortDir === 'asc' ? '▲' : '▼'}</span>
+  }
 
   function toggleExpand(canonical: string) {
     setExpanded((prev) => {
@@ -352,6 +417,17 @@ export default function Models() {
           <option value="active">Active</option>
           <option value="stale">Stale</option>
         </select>
+        {hasBenchmarks && (
+          <select
+            className="filter-select"
+            value={selectedDimension}
+            onChange={(e) => setSelectedDimension(e.target.value)}
+          >
+            {benchmarks!.dimensions.map(dim => (
+              <option key={dim} value={dim}>{DIMENSION_LABELS[dim] || dim}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Batch action bar */}
@@ -390,8 +466,9 @@ export default function Models() {
                   />
                 </th>
                 <th style={{ width: 64 }}></th>
-                <th>Model</th>
-                <th>Deployments</th>
+                <th className="sortable-th" onClick={() => handleSort('name')}>Model{sortIndicator('name')}</th>
+                <th className="sortable-th" onClick={() => handleSort('deployments')}>Deployments{sortIndicator('deployments')}</th>
+                {hasBenchmarks && <th className="sortable-th" onClick={() => handleSort('score')}>Score{sortIndicator('score')}</th>}
                 <th>Price Range (in / out)</th>
                 <th>Status</th>
               </tr>
@@ -424,6 +501,8 @@ export default function Models() {
                     onTogglePreference={handleTogglePreference}
                     isSelected={selected.has(group.canonical)}
                     onToggleSelect={() => toggleSelect(group.canonical)}
+                    score={benchmarkMap.get(group.canonical)?.[selectedDimension] ?? null}
+                    showScore={hasBenchmarks}
                   />
                 )
               })}
@@ -454,6 +533,8 @@ interface ModelGroupProps {
   onTogglePreference: (canonical: string, pref: 'favorite' | 'blacklist') => void
   isSelected: boolean
   onToggleSelect: () => void
+  score: number | null
+  showScore: boolean
 }
 
 function ModelGroup({
@@ -462,6 +543,7 @@ function ModelGroup({
   getEditValue, setEditField, isDirty, handleSave,
   saving, saveErrors, providerIdLabel,
   preference, onTogglePreference, isSelected, onToggleSelect,
+  score, showScore,
 }: ModelGroupProps) {
   const isFavorite = preference === 'favorite'
   const isBlacklisted = preference === 'blacklist'
@@ -507,6 +589,11 @@ function ModelGroup({
             {deployments.length} deployment{deployments.length !== 1 ? 's' : ''}
           </span>
         </td>
+        {showScore && (
+          <td className="mono" style={{ color: score !== null ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+            {score !== null ? score.toFixed(1) : '—'}
+          </td>
+        )}
         <td>{inputPriceRange} / {outputPriceRange}</td>
         <td>
           <span className="status-dot" />
@@ -526,6 +613,7 @@ function ModelGroup({
           isSaving={saving[d.deploymentId] || false}
           error={saveErrors[d.deploymentId]}
           providerLabel={providerIdLabel(d.providerId, d.groupName)}
+          showScore={showScore}
         />
       ))}
     </>
@@ -541,10 +629,11 @@ interface DeploymentRowProps {
   isSaving: boolean
   error?: string
   providerLabel: string
+  showScore: boolean
 }
 
 function DeploymentRow({
-  deployment, editValue, onEditField, dirty, onSave, isSaving, error, providerLabel,
+  deployment, editValue, onEditField, dirty, onSave, isSaving, error, providerLabel, showScore,
 }: DeploymentRowProps) {
   const source = derivedPriceSource(deployment)
   const badgeClass = SOURCE_BADGE_CLASS[source] || ''
@@ -561,6 +650,7 @@ function DeploymentRow({
         <td>
           <span className={`badge ${badgeClass}`} style={{ fontSize: 10 }}>{source}</span>
         </td>
+        {showScore && <td></td>}
         <td>
           <input
             type="text"
@@ -604,7 +694,7 @@ function DeploymentRow({
       </tr>
       {error && (
         <tr style={{ background: 'var(--bg-primary)' }}>
-          <td colSpan={6} style={{ paddingLeft: 40, color: 'var(--accent-red)', fontSize: 12 }}>
+          <td colSpan={showScore ? 7 : 6} style={{ paddingLeft: 40, color: 'var(--accent-red)', fontSize: 12 }}>
             {error}
           </td>
         </tr>

@@ -171,5 +171,21 @@ export const deleteKey = (id: string) =>
 export const getKeyUsage = (id: string) =>
   request<KeyUsage>(`/keys/${id}/usage`)
 
+// Benchmarks
+export interface BenchmarkPoint {
+  canonical: string
+  providerId: string
+  blendedPrice: number
+  benchmarks: Record<string, number | null>
+}
+
+export interface BenchmarkData {
+  dimensions: string[]
+  points: BenchmarkPoint[]
+  configured: boolean
+}
+
+export const getBenchmarks = () => request<BenchmarkData>('/benchmarks')
+
 // Health
 export const getHealth = () => request<{ status: string; timestamp: string }>('/health')

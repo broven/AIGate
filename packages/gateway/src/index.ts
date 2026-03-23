@@ -15,6 +15,7 @@ import statsApi from './api/stats'
 import providersApi from './api/providers'
 import keysApi from './api/keys'
 import modelsApi from './api/models'
+import benchmarksApi from './api/benchmarks'
 import { startSyncScheduler } from './sync/engine'
 
 // Run migrations on startup
@@ -42,6 +43,7 @@ app.route('/api', statsApi)
 app.route('/api/providers', providersApi)
 app.route('/api/keys', keysApi)
 app.route('/api/models', modelsApi)
+app.route('/api', benchmarksApi)
 
 // --- Shared LLM request handler ---
 interface RequestHandler {

@@ -10,6 +10,7 @@
     "dev:dashboard": "pnpm --filter dashboard dev",
     "build": "pnpm --filter dashboard build",
     "db:generate": "pnpm --filter gateway db:generate",
-    "db:migrate": "pnpm --filter gateway db:migrate"
+    "db:migrate": "pnpm --filter gateway db:migrate",
+    "seed": "pnpm --filter gateway seed"
   }
 }

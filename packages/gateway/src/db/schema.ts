@@ -90,6 +90,12 @@ export const dailyUsage = sqliteTable('daily_usage', {
   primaryKey({ columns: [table.date, table.gatewayKey, table.model] }),
 ])
 
+export const kvCache = sqliteTable('kv_cache', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(), // JSON string
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
 export const modelPreferences = sqliteTable('model_preferences', {
   canonical: text('canonical').primaryKey(),
   preference: text('preference', { enum: ['favorite', 'blacklist'] }).notNull(),
