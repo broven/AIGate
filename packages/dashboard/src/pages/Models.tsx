@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { getModels, getProviders, updateModelPrice, type ModelDeployment, type Provider } from '../lib/api'
+import { getModels, getProviders, getModelPreferences, setModelPreferences, updateModelPrice, type ModelDeployment, type Provider } from '../lib/api'
 import { usePolling } from '../hooks/usePolling'
 
 interface PriceEdit {
@@ -76,6 +76,14 @@ export default function Models() {
     return new Map(providers.map((p) => [p.id, p]))
   }, [providers])
 
+  // Preferences: fetch once on mount and after mutations
+  const [preferences, setPreferences] = useState<Map<string, 'favorite' | 'blacklist'>>(new Map())
+  useEffect(() => {
+    getModelPreferences().then((rows) => {
+      setPreferences(new Map(rows.map((r) => [r.canonical, r.preference])))
+    }).catch(() => {})
+  }, [])
+
   // UI state
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [edits, setEdits] = useState<Record<string, PriceEdit>>({})
@@ -84,6 +92,7 @@ export default function Models() {
   const [search, setSearch] = useState('')
   const [providerFilter, setProviderFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | 'active' | 'stale'>('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   // Block page on either fetch error
   const error = modelError?.message || providerError
@@ -100,8 +109,15 @@ export default function Models() {
     }
     return Array.from(map.entries())
       .map(([canonical, deployments]) => ({ canonical, deployments }))
-      .sort((a, b) => a.canonical.localeCompare(b.canonical))
-  }, [models])
+      .sort((a, b) => {
+        const prefA = preferences.get(a.canonical)
+        const prefB = preferences.get(b.canonical)
+        const tierA = prefA === 'favorite' ? 0 : prefA === 'blacklist' ? 2 : 1
+        const tierB = prefB === 'favorite' ? 0 : prefB === 'blacklist' ? 2 : 1
+        if (tierA !== tierB) return tierA - tierB
+        return a.canonical.localeCompare(b.canonical)
+      })
+  }, [models, preferences])
 
   // Filter groups
   const filtered = useMemo(() => {
@@ -218,6 +234,46 @@ export default function Models() {
     return providerId
   }
 
+  async function handleTogglePreference(canonical: string, pref: 'favorite' | 'blacklist') {
+    const current = preferences.get(canonical)
+    const newPref = current === pref ? null : pref
+    setPreferences((prev) => {
+      const next = new Map(prev)
+      if (newPref === null) next.delete(canonical)
+      else next.set(canonical, newPref)
+      return next
+    })
+    await setModelPreferences([canonical], newPref)
+  }
+
+  async function handleBatchPreference(pref: 'favorite' | 'blacklist' | null) {
+    const canonicals = [...selected]
+    setPreferences((prev) => {
+      const next = new Map(prev)
+      for (const c of canonicals) {
+        if (pref === null) next.delete(c)
+        else next.set(c, pref)
+      }
+      return next
+    })
+    setSelected(new Set())
+    await setModelPreferences(canonicals, pref)
+  }
+
+  function toggleSelect(canonical: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(canonical)) next.delete(canonical)
+      else next.add(canonical)
+      return next
+    })
+  }
+
+  // Clear selection when filters change
+  useEffect(() => {
+    setSelected(new Set())
+  }, [search, providerFilter, statusFilter])
+
   // Loading state
   if (loading && !models) {
     return (
@@ -278,13 +334,9 @@ export default function Models() {
           }}
         />
         <select
+          className="filter-select"
           value={providerFilter}
           onChange={(e) => setProviderFilter(e.target.value)}
-          style={{
-            padding: '6px 12px', background: 'var(--bg-primary)',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-primary)', fontSize: 13,
-          }}
         >
           <option value="">All Providers</option>
           {providerOptions.map((p) => (
@@ -292,19 +344,31 @@ export default function Models() {
           ))}
         </select>
         <select
+          className="filter-select"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as '' | 'active' | 'stale')}
-          style={{
-            padding: '6px 12px', background: 'var(--bg-primary)',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-primary)', fontSize: 13,
-          }}
         >
           <option value="">All Status</option>
           <option value="active">Active</option>
           <option value="stale">Stale</option>
         </select>
       </div>
+
+      {/* Batch action bar */}
+      {selected.size > 0 && (
+        <div className="batch-bar">
+          <span className="batch-count">{selected.size} selected</span>
+          <button className="btn" onClick={() => handleBatchPreference('favorite')}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--accent-yellow)" stroke="var(--accent-yellow)" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+            Favorite
+          </button>
+          <button className="btn" onClick={() => handleBatchPreference('blacklist')}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-red)" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
+            Blacklist
+          </button>
+          <button className="btn" onClick={() => handleBatchPreference(null)}>Clear</button>
+        </div>
+      )}
 
       {/* Table */}
       {filtered.length === 0 ? (
@@ -316,6 +380,16 @@ export default function Models() {
           <table>
             <thead>
               <tr>
+                <th style={{ width: 32, textAlign: 'center' }}>
+                  <input type="checkbox" className="custom-checkbox"
+                    checked={filtered.length > 0 && filtered.every((g) => selected.has(g.canonical))}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelected(new Set(filtered.map((g) => g.canonical)))
+                      else setSelected(new Set())
+                    }}
+                  />
+                </th>
+                <th style={{ width: 64 }}></th>
                 <th>Model</th>
                 <th>Deployments</th>
                 <th>Price Range (in / out)</th>
@@ -346,6 +420,10 @@ export default function Models() {
                     saving={saving}
                     saveErrors={saveErrors}
                     providerIdLabel={providerIdLabel}
+                    preference={preferences.get(group.canonical)}
+                    onTogglePreference={handleTogglePreference}
+                    isSelected={selected.has(group.canonical)}
+                    onToggleSelect={() => toggleSelect(group.canonical)}
                   />
                 )
               })}
@@ -372,6 +450,10 @@ interface ModelGroupProps {
   saving: Record<string, boolean>
   saveErrors: Record<string, string>
   providerIdLabel: (id: string, groupName: string | null) => string
+  preference?: 'favorite' | 'blacklist'
+  onTogglePreference: (canonical: string, pref: 'favorite' | 'blacklist') => void
+  isSelected: boolean
+  onToggleSelect: () => void
 }
 
 function ModelGroup({
@@ -379,18 +461,46 @@ function ModelGroup({
   inputPriceRange, outputPriceRange, onToggle,
   getEditValue, setEditField, isDirty, handleSave,
   saving, saveErrors, providerIdLabel,
+  preference, onTogglePreference, isSelected, onToggleSelect,
 }: ModelGroupProps) {
+  const isFavorite = preference === 'favorite'
+  const isBlacklisted = preference === 'blacklist'
+
   return (
     <>
       <tr
         onClick={onToggle}
-        style={{ cursor: 'pointer', background: isExpanded ? 'var(--bg-hover)' : undefined }}
+        style={{
+          cursor: 'pointer',
+          background: isExpanded ? 'var(--bg-hover)' : undefined,
+          borderLeft: isFavorite ? '3px solid var(--accent-yellow, #e6a700)' : isBlacklisted ? '3px solid var(--accent-red, #e53e3e)' : '3px solid transparent',
+          opacity: isBlacklisted ? 0.5 : 1,
+        }}
       >
+        <td style={{ width: 32, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" className="custom-checkbox" checked={isSelected} onChange={onToggleSelect} />
+        </td>
+        <td style={{ width: 64, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+          <button
+            className={`pref-btn pref-btn-fav${isFavorite ? ' active' : ''}`}
+            onClick={() => onTogglePreference(canonical, 'favorite')}
+            title={isFavorite ? 'Remove favorite' : 'Favorite'}
+          >
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+          </button>
+          <button
+            className={`pref-btn pref-btn-ban${isBlacklisted ? ' active' : ''}`}
+            onClick={() => onTogglePreference(canonical, 'blacklist')}
+            title={isBlacklisted ? 'Remove blacklist' : 'Blacklist'}
+          >
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
+          </button>
+        </td>
         <td>
           <span style={{ color: 'var(--accent-blue)', marginRight: 6, fontSize: 11 }}>
             {isExpanded ? '▼' : '▶'}
           </span>
-          <strong>{canonical}</strong>
+          <strong style={{ textDecoration: isBlacklisted ? 'line-through' : undefined }}>{canonical}</strong>
         </td>
         <td>
           <span className="badge" style={{ fontSize: 11 }}>
@@ -442,6 +552,8 @@ function DeploymentRow({
   return (
     <>
       <tr style={{ background: 'var(--bg-primary)' }}>
+        <td></td>
+        <td></td>
         <td style={{ paddingLeft: 40 }}>
           <span className="badge" style={{ fontSize: 11, marginRight: 8 }}>{providerLabel}</span>
           <span style={{ color: 'var(--text-secondary)' }}>{deployment.upstream}</span>
@@ -492,7 +604,7 @@ function DeploymentRow({
       </tr>
       {error && (
         <tr style={{ background: 'var(--bg-primary)' }}>
-          <td colSpan={4} style={{ paddingLeft: 40, color: 'var(--accent-red)', fontSize: 12 }}>
+          <td colSpan={6} style={{ paddingLeft: 40, color: 'var(--accent-red)', fontSize: 12 }}>
             {error}
           </td>
         </tr>

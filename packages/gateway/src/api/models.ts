@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../db'
 
 const app = new Hono()
@@ -38,6 +38,40 @@ app.put('/:deploymentId/price', async (c) => {
       manualPriceOutput: body.priceOutput ?? null,
     })
     .where(eq(schema.modelDeployments.deploymentId, deploymentId))
+
+  return c.json({ ok: true })
+})
+
+// GET /api/models/preferences — all model preferences (favorite/blacklist)
+app.get('/preferences', async (c) => {
+  const rows = await db
+    .select()
+    .from(schema.modelPreferences)
+  return c.json(rows)
+})
+
+// PUT /api/models/preferences — batch set/clear preferences
+app.put('/preferences', async (c) => {
+  const body = await c.req.json<{ canonicals: string[]; preference: 'favorite' | 'blacklist' | null }>()
+  const { canonicals, preference } = body
+
+  if (!Array.isArray(canonicals) || canonicals.length === 0) {
+    return c.json({ error: { message: 'canonicals must be a non-empty array' } }, 400)
+  }
+
+  if (preference === null) {
+    await db.delete(schema.modelPreferences)
+      .where(inArray(schema.modelPreferences.canonical, canonicals))
+  } else {
+    for (const canonical of canonicals) {
+      await db.insert(schema.modelPreferences)
+        .values({ canonical, preference, updatedAt: new Date().toISOString() })
+        .onConflictDoUpdate({
+          target: schema.modelPreferences.canonical,
+          set: { preference, updatedAt: new Date().toISOString() },
+        })
+    }
+  }
 
   return c.json({ ok: true })
 })

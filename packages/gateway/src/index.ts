@@ -216,8 +216,16 @@ app.get('/v1/models', gatewayAuth, async (c) => {
     .from(schema.modelDeployments)
     .where(eq(schema.modelDeployments.status, 'active'))
 
-  // Deduplicate canonical names
+  // Exclude blacklisted models
+  const blacklisted = await db
+    .select({ canonical: schema.modelPreferences.canonical })
+    .from(schema.modelPreferences)
+    .where(eq(schema.modelPreferences.preference, 'blacklist'))
+  const blackSet = new Set(blacklisted.map((r) => r.canonical))
+
+  // Deduplicate canonical names, excluding blacklisted
   const models = [...new Set(deployments.map((d) => d.canonical))]
+    .filter((c) => !blackSet.has(c))
 
   return c.json({
     object: 'list',
