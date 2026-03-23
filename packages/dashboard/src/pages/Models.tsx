@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getModels, getProviders, getModelPreferences, setModelPreferences, updateModelPrice, getBenchmarks, type ModelDeployment, type Provider } from '../lib/api'
 import { usePolling } from '../hooks/usePolling'
+import { displayName, getAliases } from '../lib/model-utils'
 
 const DIMENSION_LABELS: Record<string, string> = {
   artificial_analysis_intelligence_index: 'Intelligence Index',
@@ -173,7 +174,12 @@ export default function Models() {
   // Filter groups
   const filtered = useMemo(() => {
     return groups.filter((g) => {
-      if (search && !g.canonical.toLowerCase().includes(search.toLowerCase())) return false
+      if (search) {
+        const q = search.toLowerCase()
+        const matchesCanonical = g.canonical.toLowerCase().includes(q)
+        const matchesDisplay = displayName(g.canonical).toLowerCase().includes(q)
+        if (!matchesCanonical && !matchesDisplay) return false
+      }
       if (providerFilter && !g.deployments.some((d) => d.providerId === providerFilter)) return false
       if (statusFilter) {
         const hasStatus = g.deployments.some((d) => d.status === statusFilter)
@@ -582,7 +588,12 @@ function ModelGroup({
           <span style={{ color: 'var(--accent-blue)', marginRight: 6, fontSize: 11 }}>
             {isExpanded ? '▼' : '▶'}
           </span>
-          <strong style={{ textDecoration: isBlacklisted ? 'line-through' : undefined }}>{canonical}</strong>
+          <strong style={{ textDecoration: isBlacklisted ? 'line-through' : undefined }}>{displayName(canonical)}</strong>
+          {getAliases(canonical).length > 0 && (
+            <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 8 }}>
+              aka {canonical}
+            </span>
+          )}
         </td>
         <td>
           <span className="badge" style={{ fontSize: 11 }}>

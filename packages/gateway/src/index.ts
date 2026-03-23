@@ -17,6 +17,7 @@ import keysApi from './api/keys'
 import modelsApi from './api/models'
 import benchmarksApi from './api/benchmarks'
 import { startSyncScheduler } from './sync/engine'
+import { canonicalize } from './sync/canonicalize'
 
 // Run migrations on startup
 import './db/migrate'
@@ -64,6 +65,7 @@ async function handleLLMRequest(
   let universalReq
   try {
     universalReq = await handler.parseRequest(body, gatewayKeyName, ...parseExtra)
+    universalReq.model = canonicalize(universalReq.model)
   } catch (error) {
     return c.json(
       handler.formatError(

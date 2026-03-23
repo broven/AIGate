@@ -126,6 +126,11 @@ const migrations = [
   `ALTER TABLE gateway_keys ADD COLUMN key_plain TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE gateway_keys DROP COLUMN key_hash`,
   `ALTER TABLE gateway_keys DROP COLUMN key_prefix`,
+  // Normalize version dots to dashes in model_preferences (user-set data, not auto-synced)
+  `UPDATE model_preferences SET canonical = REPLACE(canonical, '3.5', '3-5') WHERE canonical LIKE '%3.5%'`,
+  `UPDATE model_preferences SET canonical = REPLACE(canonical, '2.5', '2-5') WHERE canonical LIKE '%2.5%'`,
+  `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.5', '4-5') WHERE canonical LIKE '%4.5%'`,
+  `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.6', '4-6') WHERE canonical LIKE '%4.6%'`,
 ]
 
 for (const sql of migrations) {
