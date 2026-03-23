@@ -6,7 +6,9 @@ import { canonicalize } from '../sync/canonicalize'
 const app = new Hono()
 
 const AA_CACHE_KEY = 'aa_models'
+const AA_BACKOFF_KEY = 'aa_models_backoff'
 const CACHE_TTL = 24 * 60 * 60 * 1000 // 24h
+const BACKOFF_TTL = 60 * 60 * 1000 // 1h backoff on API errors
 
 const DIMENSIONS = [
   'artificial_analysis_intelligence_index',
@@ -31,11 +33,23 @@ async function fetchAA(): Promise<any[]> {
   if (!apiToken) return []
 
   // Check DB cache
-  const cached = await db.select().from(schema.kvCache).where(eq(schema.kvCache.key, AA_CACHE_KEY)).get()
+  const [cached, backoff] = await Promise.all([
+    db.select().from(schema.kvCache).where(eq(schema.kvCache.key, AA_CACHE_KEY)).get(),
+    db.select().from(schema.kvCache).where(eq(schema.kvCache.key, AA_BACKOFF_KEY)).get(),
+  ])
   if (cached) {
-    const age = Date.now() - new Date(cached.updatedAt + 'Z').getTime()
+    const age = Date.now() - new Date(cached.updatedAt).getTime()
     if (age < CACHE_TTL) {
       return JSON.parse(cached.value)
+    }
+  }
+
+  // If we're in backoff period (recent API error), don't retry yet
+  if (backoff) {
+    const backoffAge = Date.now() - new Date(backoff.updatedAt).getTime()
+    if (backoffAge < BACKOFF_TTL) {
+      if (cached) return JSON.parse(cached.value)
+      return []
     }
   }
 
@@ -45,6 +59,13 @@ async function fetchAA(): Promise<any[]> {
     })
     if (!resp.ok) {
       console.error(`[benchmarks] AA API returned ${resp.status}`)
+      // Set backoff to avoid hammering the API on repeated requests
+      await db.insert(schema.kvCache)
+        .values({ key: AA_BACKOFF_KEY, value: String(resp.status), updatedAt: new Date().toISOString() })
+        .onConflictDoUpdate({
+          target: schema.kvCache.key,
+          set: { value: String(resp.status), updatedAt: new Date().toISOString() },
+        })
       if (cached) return JSON.parse(cached.value)
       return []
     }
@@ -56,13 +77,16 @@ async function fetchAA(): Promise<any[]> {
       return []
     }
 
-    // Upsert into DB cache
-    await db.insert(schema.kvCache)
-      .values({ key: AA_CACHE_KEY, value: JSON.stringify(data), updatedAt: new Date().toISOString() })
-      .onConflictDoUpdate({
-        target: schema.kvCache.key,
-        set: { value: JSON.stringify(data), updatedAt: new Date().toISOString() },
-      })
+    // Upsert into DB cache and clear backoff
+    await Promise.all([
+      db.insert(schema.kvCache)
+        .values({ key: AA_CACHE_KEY, value: JSON.stringify(data), updatedAt: new Date().toISOString() })
+        .onConflictDoUpdate({
+          target: schema.kvCache.key,
+          set: { value: JSON.stringify(data), updatedAt: new Date().toISOString() },
+        }),
+      db.delete(schema.kvCache).where(eq(schema.kvCache.key, AA_BACKOFF_KEY)),
+    ])
 
     return data
   } catch (err) {
