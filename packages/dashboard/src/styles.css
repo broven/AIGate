@@ -782,6 +782,68 @@ tr.expanded-content:hover td {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
+.multi-select-popover--models {
+  min-width: 280px;
+  max-height: 400px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.multi-select-sticky {
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.multi-select-search {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.multi-select-search:focus {
+  border-color: var(--accent-blue);
+}
+
+.multi-select-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.multi-select-invert-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.multi-select-invert-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.multi-select-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 8px 8px;
+}
+
 .multi-select-item {
   display: flex;
   align-items: center;

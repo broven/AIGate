@@ -2,6 +2,22 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import type { BenchmarkData } from '../lib/api'
 
+const STORAGE_KEY_PROVIDERS = 'aigate_chart_providers'
+const STORAGE_KEY_MODELS = 'aigate_chart_models'
+
+function loadSet(key: string): Set<string> | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? new Set<string>(arr) : null
+  } catch { return null }
+}
+
+function saveSet(key: string, set: Set<string>): void {
+  localStorage.setItem(key, JSON.stringify([...set]))
+}
+
 interface BenchmarkChartProps {
   data: BenchmarkData | null
   loading?: boolean
@@ -47,48 +63,130 @@ function CustomTooltip({ active, payload }: any) {
 export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps) {
   const [selectedDimension, setSelectedDimension] = useState('artificial_analysis_intelligence_index')
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set())
+  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set())
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const [modelSearch, setModelSearch] = useState('')
+  const providerDropdownRef = useRef<HTMLDivElement>(null)
+  const modelDropdownRef = useRef<HTMLDivElement>(null)
+  const userHasInteractedProviders = useRef(false)
+  const userHasInteractedModels = useRef(false)
 
   const allProviderIds = useMemo(() => {
     if (!data) return []
     return [...new Set(data.points.map(p => p.providerId))]
   }, [data])
 
-  // Initialize selectedProviders when data changes
-  useEffect(() => {
-    if (data) {
-      setSelectedProviders(new Set(data.points.map(p => p.providerId)))
-    }
-  }, [data])
+  const allModelIds = useMemo(() => {
+    if (!data) return []
+    return [...new Set(data.points.filter(p => !blacklist?.has(p.canonical)).map(p => p.canonical))].sort()
+  }, [data, blacklist])
 
-  // Close dropdown on outside click
+  const filteredModelIds = useMemo(() => {
+    if (!modelSearch) return allModelIds
+    const q = modelSearch.toLowerCase()
+    return allModelIds.filter(id => id.toLowerCase().includes(q))
+  }, [allModelIds, modelSearch])
+
+  // Initialize selections from localStorage or default to all
+  useEffect(() => {
+    if (!data) return
+    const allProviders = new Set(data.points.map(p => p.providerId))
+    const allModels = new Set(data.points.filter(p => !blacklist?.has(p.canonical)).map(p => p.canonical))
+
+    if (!userHasInteractedProviders.current) {
+      const saved = loadSet(STORAGE_KEY_PROVIDERS)
+      if (saved) {
+        // Intersect with current available providers
+        const restored = new Set([...saved].filter(id => allProviders.has(id)))
+        setSelectedProviders(restored.size > 0 ? restored : allProviders)
+      } else {
+        setSelectedProviders(allProviders)
+      }
+    }
+
+    if (!userHasInteractedModels.current) {
+      const saved = loadSet(STORAGE_KEY_MODELS)
+      if (saved) {
+        const restored = new Set([...saved].filter(id => allModels.has(id)))
+        setSelectedModels(restored.size > 0 ? restored : allModels)
+      } else {
+        setSelectedModels(allModels)
+      }
+    }
+  }, [data, blacklist])
+
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (providerDropdownRef.current && !providerDropdownRef.current.contains(e.target as Node)) {
         setProviderDropdownOpen(false)
+      }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setModelDropdownOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const toggleAll = useCallback(() => {
-    if (selectedProviders.size === allProviderIds.length) {
-      setSelectedProviders(new Set())
-    } else {
-      setSelectedProviders(new Set(allProviderIds))
-    }
-  }, [selectedProviders.size, allProviderIds])
+  const toggleAllProviders = useCallback(() => {
+    userHasInteractedProviders.current = true
+    setSelectedProviders(prev => {
+      const next = prev.size === allProviderIds.length ? new Set<string>() : new Set(allProviderIds)
+      saveSet(STORAGE_KEY_PROVIDERS, next)
+      return next
+    })
+  }, [allProviderIds])
 
   const toggleProvider = useCallback((id: string) => {
+    userHasInteractedProviders.current = true
     setSelectedProviders(prev => {
       const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      saveSet(STORAGE_KEY_PROVIDERS, next)
+      return next
+    })
+  }, [])
+
+  const toggleAllModels = useCallback(() => {
+    userHasInteractedModels.current = true
+    const targets = filteredModelIds
+    setSelectedModels(prev => {
+      const allSelected = targets.every(id => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) {
+        for (const id of targets) next.delete(id)
       } else {
-        next.add(id)
+        for (const id of targets) next.add(id)
       }
+      saveSet(STORAGE_KEY_MODELS, next)
+      return next
+    })
+  }, [filteredModelIds])
+
+  const invertModels = useCallback(() => {
+    userHasInteractedModels.current = true
+    const targets = filteredModelIds
+    setSelectedModels(prev => {
+      const next = new Set(prev)
+      for (const id of targets) {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+      }
+      saveSet(STORAGE_KEY_MODELS, next)
+      return next
+    })
+  }, [filteredModelIds])
+
+  const toggleModel = useCallback((id: string) => {
+    userHasInteractedModels.current = true
+    setSelectedModels(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      saveSet(STORAGE_KEY_MODELS, next)
       return next
     })
   }, [])
@@ -101,6 +199,7 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
       if (score == null) continue
       if (!selectedProviders.has(point.providerId)) continue
       if (blacklist?.has(point.canonical)) continue
+      if (!selectedModels.has(point.canonical)) continue
       if (!grouped.has(point.providerId)) {
         grouped.set(point.providerId, [])
       }
@@ -112,7 +211,7 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
       })
     }
     return [...grouped.entries()]
-  }, [data, selectedDimension, selectedProviders, blacklist])
+  }, [data, selectedDimension, selectedProviders, selectedModels, blacklist])
 
   return (
     <div className="section">
@@ -129,7 +228,7 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
             ))}
           </select>
 
-          <div className="multi-select" ref={dropdownRef} style={{ position: 'relative' }}>
+          <div className="multi-select" ref={providerDropdownRef} style={{ position: 'relative' }}>
             <button className="btn" onClick={() => setProviderDropdownOpen(!providerDropdownOpen)}>
               Providers ({selectedProviders.size})
             </button>
@@ -139,7 +238,7 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
                   <input
                     type="checkbox"
                     checked={selectedProviders.size === allProviderIds.length}
-                    onChange={toggleAll}
+                    onChange={toggleAllProviders}
                   />
                   <span>Select All</span>
                 </label>
@@ -153,6 +252,54 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
                     <span>{id}</span>
                   </label>
                 ))}
+              </div>
+            )}
+          </div>
+
+          <div className="multi-select" ref={modelDropdownRef} style={{ position: 'relative' }}>
+            <button className="btn" onClick={() => { setModelDropdownOpen(!modelDropdownOpen); if (!modelDropdownOpen) setModelSearch('') }}>
+              Models ({selectedModels.size}/{allModelIds.length})
+            </button>
+            {modelDropdownOpen && (
+              <div className="multi-select-popover multi-select-popover--models">
+                <div className="multi-select-sticky">
+                  <input
+                    type="text"
+                    className="multi-select-search"
+                    placeholder="Search models..."
+                    value={modelSearch}
+                    onChange={e => setModelSearch(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="multi-select-actions">
+                    <label className="multi-select-item">
+                      <input
+                        type="checkbox"
+                        checked={filteredModelIds.length > 0 && filteredModelIds.every(id => selectedModels.has(id))}
+                        onChange={toggleAllModels}
+                      />
+                      <span>Select All{modelSearch ? ` (${filteredModelIds.length})` : ''}</span>
+                    </label>
+                    <button className="multi-select-invert-btn" onClick={invertModels}>
+                      Invert
+                    </button>
+                  </div>
+                </div>
+                <div className="multi-select-list">
+                  {filteredModelIds.map(id => (
+                    <label key={id} className="multi-select-item">
+                      <input
+                        type="checkbox"
+                        checked={selectedModels.has(id)}
+                        onChange={() => toggleModel(id)}
+                      />
+                      <span>{id}</span>
+                    </label>
+                  ))}
+                  {filteredModelIds.length === 0 && (
+                    <div style={{ padding: '8px', color: 'var(--text-muted)', fontSize: 13 }}>No models match</div>
+                  )}
+                </div>
               </div>
             )}
           </div>
