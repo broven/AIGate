@@ -42,7 +42,10 @@ function buildBody(req: UniversalRequest, upstreamModel: string) {
   if (req.parameters.temperature !== undefined) body.temperature = req.parameters.temperature
   if (req.parameters.maxTokens !== undefined) body.max_tokens = req.parameters.maxTokens
   if (req.parameters.topP !== undefined) body.top_p = req.parameters.topP
-  if (req.parameters.stream) body.stream = true
+  if (req.parameters.stream) {
+    body.stream = true
+    body.stream_options = { include_usage: true }
+  }
   if (req.parameters.stop) body.stop = req.parameters.stop
   if (req.parameters.tools) {
     body.tools = req.parameters.tools.map((t) => ({

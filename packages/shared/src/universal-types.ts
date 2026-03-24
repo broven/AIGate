@@ -63,6 +63,8 @@ export interface RouteAttempt {
   deploymentId: string
   groupName?: string | null
   price: number
+  priceInput: number
+  priceOutput: number
   status: 'success' | 'failed' | 'skipped_cooldown'
   error?: string
   latencyMs?: number

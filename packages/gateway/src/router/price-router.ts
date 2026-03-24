@@ -109,7 +109,7 @@ export interface RouteResult {
   attempts: RouteAttempt[]
   finalProvider: string | null
   totalLatencyMs: number
-  maxPrice: number // For savedVsDirect calculation
+  allPricePairs: { priceInput: number; priceOutput: number }[]
 }
 
 export async function routeRequest(req: UniversalRequest): Promise<RouteResult> {
@@ -122,17 +122,15 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
       attempts: [],
       finalProvider: null,
       totalLatencyMs: Date.now() - startTime,
-      maxPrice: 0,
+      allPricePairs: [],
     }
   }
 
-  // Track max price for savings calculation
-  const maxPrice = Math.max(
-    ...allDeployments
-      .filter((d) => d.effectivePrice < Infinity)
-      .map((d) => d.effectivePrice),
-    0,
-  )
+  // Collect all finite price pairs so the logger can compute true worst-case
+  // cost at logging time using actual token counts (avoids paired-rate skew).
+  const allPricePairs = allDeployments
+    .filter((d) => d.priceInput < Infinity && d.priceOutput < Infinity)
+    .map((d) => ({ priceInput: d.priceInput, priceOutput: d.priceOutput }))
 
   // Sort by price
   const sorted = [...allDeployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
@@ -148,6 +146,8 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
       deploymentId: d.deploymentId,
       groupName: d.groupName,
       price: d.effectivePrice,
+      priceInput: d.priceInput,
+      priceOutput: d.priceOutput,
       status: 'skipped_cooldown',
     })
   }
@@ -167,7 +167,7 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
         attempts,
         finalProvider: deployment.providerId,
         totalLatencyMs: Date.now() - startTime,
-        maxPrice,
+        allPricePairs,
       }
     }
     failedDeployments.add(deployment.deploymentId)
@@ -197,7 +197,7 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
         attempts,
         finalProvider: deployment.providerId,
         totalLatencyMs: Date.now() - startTime,
-        maxPrice,
+        allPricePairs,
       }
     }
   }
@@ -207,7 +207,7 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
     attempts,
     finalProvider: null,
     totalLatencyMs: Date.now() - startTime,
-    maxPrice,
+    allPricePairs,
   }
 }
 
@@ -248,6 +248,8 @@ async function tryDeployment(
             deploymentId: deployment.deploymentId,
             groupName: deployment.groupName,
             price: deployment.effectivePrice,
+            priceInput: deployment.priceInput,
+            priceOutput: deployment.priceOutput,
             status: 'failed',
             error: `${upstreamResponse.status}: ${errorBody.slice(0, 200)}`,
             latencyMs,
@@ -269,6 +271,8 @@ async function tryDeployment(
           deploymentId: deployment.deploymentId,
           groupName: deployment.groupName,
           price: deployment.effectivePrice,
+          priceInput: deployment.priceInput,
+          priceOutput: deployment.priceOutput,
           status: 'failed',
           error: `${upstreamResponse.status}: ${errorBody.slice(0, 200)}`,
           latencyMs,
@@ -284,6 +288,8 @@ async function tryDeployment(
           deploymentId: deployment.deploymentId,
           groupName: deployment.groupName,
           price: deployment.effectivePrice,
+          priceInput: deployment.priceInput,
+          priceOutput: deployment.priceOutput,
           status: 'success',
           latencyMs,
         },
@@ -304,6 +310,8 @@ async function tryDeployment(
         deploymentId: deployment.deploymentId,
         groupName: deployment.groupName,
         price: deployment.effectivePrice,
+        priceInput: deployment.priceInput,
+        priceOutput: deployment.priceOutput,
         status: 'success',
         latencyMs,
       },
@@ -319,6 +327,8 @@ async function tryDeployment(
         deploymentId: deployment.deploymentId,
         groupName: deployment.groupName,
         price: deployment.effectivePrice,
+        priceInput: deployment.priceInput,
+        priceOutput: deployment.priceOutput,
         status: 'failed',
         error: error instanceof Error ? error.message : String(error),
         latencyMs,
