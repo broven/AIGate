@@ -107,7 +107,10 @@ export async function sendToGemini(
 
   return fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      ...req.clientHeaders,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify(body),
   })
 }

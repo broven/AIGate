@@ -42,6 +42,8 @@ export interface UniversalRequest {
     gatewayKey: string
     timestamp: number
   }
+  /** Original client headers to forward upstream (hop-by-hop and auth headers excluded) */
+  clientHeaders?: Record<string, string>
 }
 
 // Universal Response — returned from upstream
