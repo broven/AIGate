@@ -50,7 +50,7 @@ export interface LogEntry {
 
 export interface Provider {
   id: string
-  type: 'newapi' | 'openai-compatible'
+  type: 'newapi' | 'openai-compatible' | 'anthropic'
   apiFormat: 'openai' | 'claude' | 'gemini'
   endpoint: string
   apiKey: string

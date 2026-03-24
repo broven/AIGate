@@ -1,4 +1,4 @@
-export type ProviderType = 'newapi' | 'openai-compatible'
+export type ProviderType = 'newapi' | 'openai-compatible' | 'anthropic'
 export type PriceSource = 'provider_api' | 'models_dev' | 'manual' | 'unknown'
 export type DeploymentStatus = 'active' | 'stale'
 
