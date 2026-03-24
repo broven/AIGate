@@ -1,5 +1,5 @@
-import { useCallback } from 'react'
-import { getStats, getLogs, getBenchmarks, type LogEntry } from '../lib/api'
+import { useCallback, useMemo } from 'react'
+import { getStats, getLogs, getBenchmarks, getModelPreferences, type LogEntry } from '../lib/api'
 import { usePolling } from '../hooks/usePolling'
 import { FallbackChain } from '../components/FallbackChain'
 import { BenchmarkChart } from '../components/BenchmarkChart'
@@ -18,9 +18,16 @@ export default function Overview() {
   const fetchLogs = useCallback(() => getLogs({ limit: 20 }), [])
 
   const fetchBenchmarks = useCallback(() => getBenchmarks(), [])
+  const fetchPreferences = useCallback(() => getModelPreferences(), [])
   const { data: stats, loading: statsLoading } = usePolling(fetchStats, 5000)
   const { data: logs, loading: logsLoading } = usePolling(fetchLogs, 5000)
   const { data: benchmarks, loading: benchmarksLoading } = usePolling(fetchBenchmarks, 60000)
+  const { data: preferences } = usePolling(fetchPreferences, 60000)
+
+  const blacklist = useMemo(() => {
+    if (!preferences) return new Set<string>()
+    return new Set(preferences.filter(p => p.preference === 'blacklist').map(p => p.canonical))
+  }, [preferences])
 
   return (
     <div>
@@ -47,7 +54,7 @@ export default function Overview() {
         </div>
       </div>
 
-      <BenchmarkChart data={benchmarks} loading={benchmarksLoading} />
+      <BenchmarkChart data={benchmarks} loading={benchmarksLoading} blacklist={blacklist} />
 
       <div className="section">
         <div className="section-header">

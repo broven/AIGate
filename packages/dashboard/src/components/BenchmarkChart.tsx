@@ -5,6 +5,7 @@ import type { BenchmarkData } from '../lib/api'
 interface BenchmarkChartProps {
   data: BenchmarkData | null
   loading?: boolean
+  blacklist?: Set<string>
 }
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -37,13 +38,13 @@ function CustomTooltip({ active, payload }: any) {
     <div className="chart-tooltip">
       <div style={{ fontWeight: 600 }}>{data.canonical}</div>
       <div style={{ color: 'var(--text-secondary)' }}>{data.providerId}</div>
-      <div>Score: {data.x?.toFixed(2)}</div>
-      <div>Price: ${data.y?.toFixed(2)}/1M tokens</div>
+      <div>Score: {data.y?.toFixed(2)}</div>
+      <div>Price: ${data.x?.toFixed(2)}/1M tokens</div>
     </div>
   )
 }
 
-export function BenchmarkChart({ data, loading }: BenchmarkChartProps) {
+export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps) {
   const [selectedDimension, setSelectedDimension] = useState('artificial_analysis_intelligence_index')
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set())
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false)
@@ -99,18 +100,19 @@ export function BenchmarkChart({ data, loading }: BenchmarkChartProps) {
       const score = point.benchmarks[selectedDimension]
       if (score == null) continue
       if (!selectedProviders.has(point.providerId)) continue
+      if (blacklist?.has(point.canonical)) continue
       if (!grouped.has(point.providerId)) {
         grouped.set(point.providerId, [])
       }
       grouped.get(point.providerId)!.push({
-        x: score,
-        y: point.blendedPrice,
+        x: point.blendedPrice,
+        y: score,
         canonical: point.canonical,
         providerId: point.providerId,
       })
     }
     return [...grouped.entries()]
-  }, [data, selectedDimension, selectedProviders])
+  }, [data, selectedDimension, selectedProviders, blacklist])
 
   return (
     <div className="section">
@@ -185,19 +187,19 @@ export function BenchmarkChart({ data, loading }: BenchmarkChartProps) {
               <XAxis
                 type="number"
                 dataKey="x"
-                name="Score"
+                name="Price"
                 tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-                label={{ value: DIMENSION_LABELS[selectedDimension] || selectedDimension, position: 'bottom', fill: 'var(--text-secondary)', fontSize: 12 }}
+                label={{ value: 'USD / 1M tokens', position: 'bottom', fill: 'var(--text-secondary)', fontSize: 12 }}
               />
               <YAxis
                 type="number"
                 dataKey="y"
-                name="Price"
+                name="Score"
                 tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-                label={{ value: 'USD / 1M tokens', angle: -90, position: 'insideLeft', fill: 'var(--text-secondary)', fontSize: 12 }}
+                label={{ value: DIMENSION_LABELS[selectedDimension] || selectedDimension, angle: -90, position: 'insideLeft', fill: 'var(--text-secondary)', fontSize: 12 }}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Legend />
+              <Legend verticalAlign="top" align="right" />
               {filteredGroups.map(([providerId, points], i) => (
                 <Scatter
                   key={providerId}
