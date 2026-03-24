@@ -2,6 +2,7 @@ import { eq, and, notInArray, inArray } from 'drizzle-orm'
 import { db, schema } from '../db'
 import { syncNewAPIProvider, type SyncedModel } from './newapi'
 import { syncOpenAICompatibleProvider } from './openai-compat'
+import { syncAnthropicProvider } from './anthropic'
 import type { SyncResult } from '@aigate/shared'
 
 type ProviderRow = typeof schema.providers.$inferSelect
@@ -22,6 +23,12 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
       blackGroupMatch,
       provider.accessToken ?? undefined,
       provider.newApiUserId ?? undefined,
+    )
+  } else if (provider.type === 'anthropic') {
+    syncResult = await syncAnthropicProvider(
+      provider.endpoint,
+      provider.apiKey || '',
+      provider.costMultiplier,
     )
   } else {
     syncResult = await syncOpenAICompatibleProvider(

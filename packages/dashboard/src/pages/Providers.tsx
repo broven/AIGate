@@ -3,7 +3,7 @@ import { getProviders, createProvider, updateProvider, deleteProvider, syncProvi
 
 interface ProviderForm {
   id: string
-  type: 'newapi' | 'openai-compatible'
+  type: 'newapi' | 'openai-compatible' | 'anthropic'
   apiFormat: 'openai' | 'claude' | 'gemini'
   endpoint: string
   apiKey: string
@@ -391,20 +391,31 @@ export default function Providers() {
 
               <div className="form-group">
                 <label>Type</label>
-                <select value={form.type} onChange={(e) => updateField('type', e.target.value as ProviderForm['type'])}>
+                <select value={form.type} onChange={(e) => {
+                  const newType = e.target.value as ProviderForm['type']
+                  const updates: Partial<ProviderForm> = { type: newType }
+                  if (newType === 'anthropic') {
+                    updates.apiFormat = 'claude'
+                    if (!form.endpoint) updates.endpoint = 'https://api.anthropic.com'
+                  }
+                  setForm((prev) => ({ ...prev, ...updates }))
+                }}>
                   <option value="newapi">NewAPI</option>
                   <option value="openai-compatible">OpenAI Compatible</option>
+                  <option value="anthropic">Anthropic</option>
                 </select>
               </div>
 
-              <div className="form-group">
-                <label>API Format</label>
-                <select value={form.apiFormat} onChange={(e) => updateField('apiFormat', e.target.value as ProviderForm['apiFormat'])}>
-                  <option value="openai">OpenAI</option>
-                  <option value="claude">Claude (Anthropic)</option>
-                  <option value="gemini">Gemini (Google)</option>
-                </select>
-              </div>
+              {form.type !== 'anthropic' && (
+                <div className="form-group">
+                  <label>API Format</label>
+                  <select value={form.apiFormat} onChange={(e) => updateField('apiFormat', e.target.value as ProviderForm['apiFormat'])}>
+                    <option value="openai">OpenAI</option>
+                    <option value="claude">Claude (Anthropic)</option>
+                    <option value="gemini">Gemini (Google)</option>
+                  </select>
+                </div>
+              )}
 
               <div className="form-group">
                 <label>Endpoint</label>
@@ -417,7 +428,7 @@ export default function Providers() {
                 />
               </div>
 
-              {form.type === 'openai-compatible' && (
+              {(form.type === 'openai-compatible' || form.type === 'anthropic') && (
                 <div className="form-group">
                   <label>API Key{editingId ? ' (leave blank to keep current)' : ''}</label>
                   <input
