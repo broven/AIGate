@@ -180,8 +180,10 @@ export const getKeyUsage = (id: string) =>
 
 // Benchmarks
 export interface BenchmarkPoint {
+  deploymentId: string
   canonical: string
   providerId: string
+  groupName?: string | null
   blendedPrice: number
   benchmarks: Record<string, number | null>
 }

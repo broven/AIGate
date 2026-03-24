@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { db, schema } from '../db'
 import { canonicalize } from '../sync/canonicalize'
 
@@ -116,6 +116,7 @@ app.get('/benchmarks', async (c) => {
       deploymentId: schema.modelDeployments.deploymentId,
       providerId: schema.modelDeployments.providerId,
       canonical: schema.modelDeployments.canonical,
+      groupName: schema.modelDeployments.groupName,
       priceInput: schema.modelDeployments.priceInput,
       priceOutput: schema.modelDeployments.priceOutput,
       manualPriceInput: schema.modelDeployments.manualPriceInput,
@@ -125,7 +126,7 @@ app.get('/benchmarks', async (c) => {
     })
     .from(schema.modelDeployments)
     .innerJoin(schema.providers, eq(schema.modelDeployments.providerId, schema.providers.id))
-    .where(eq(schema.modelDeployments.status, 'active'))
+    .where(and(eq(schema.modelDeployments.status, 'active'), eq(schema.modelDeployments.blacklisted, false)))
 
   const points: any[] = []
 
@@ -146,8 +147,10 @@ app.get('/benchmarks', async (c) => {
     }
 
     points.push({
+      deploymentId: row.deploymentId,
       canonical: row.canonical,
       providerId: row.providerId,
+      groupName: row.groupName ?? null,
       blendedPrice,
       benchmarks,
     })

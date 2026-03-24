@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { getStats, getLogs, getBenchmarks, getModelPreferences, type LogEntry } from '../lib/api'
+import { getStats, getLogs, getBenchmarks, getModelPreferences, setDeploymentBlacklist, type LogEntry, type BenchmarkData } from '../lib/api'
 import { usePolling } from '../hooks/usePolling'
 import { FallbackChain } from '../components/FallbackChain'
 import { BenchmarkChart } from '../components/BenchmarkChart'
@@ -21,13 +21,36 @@ export default function Overview() {
   const fetchPreferences = useCallback(() => getModelPreferences(), [])
   const { data: stats, loading: statsLoading } = usePolling(fetchStats, 5000)
   const { data: logs, loading: logsLoading } = usePolling(fetchLogs, 5000)
-  const { data: benchmarks, loading: benchmarksLoading } = usePolling(fetchBenchmarks, 60000)
+  const { data: benchmarks, loading: benchmarksLoading, mutate: mutateBenchmarks } = usePolling(fetchBenchmarks, 60000)
   const { data: preferences } = usePolling(fetchPreferences, 60000)
 
   const blacklist = useMemo(() => {
     if (!preferences) return new Set<string>()
     return new Set(preferences.filter(p => p.preference === 'blacklist').map(p => p.canonical))
   }, [preferences])
+
+  const handleBlacklist = useCallback(async (deploymentId: string) => {
+    // Optimistically remove the point from chart data
+    mutateBenchmarks((prev: BenchmarkData | null) => {
+      if (!prev) return prev
+      return { ...prev, points: prev.points.filter(p => p.deploymentId !== deploymentId) }
+    })
+    try {
+      await setDeploymentBlacklist(deploymentId, true)
+      // Refetch to get authoritative server state
+      const fresh = await getBenchmarks()
+      mutateBenchmarks(() => fresh)
+    } catch (err) {
+      console.error('[blacklist] Failed to blacklist deployment:', err)
+      // Refetch to restore consistent state
+      try {
+        const fresh = await getBenchmarks()
+        mutateBenchmarks(() => fresh)
+      } catch {
+        // If refetch also fails, force a poll on next cycle by leaving stale state
+      }
+    }
+  }, [mutateBenchmarks])
 
   return (
     <div>
@@ -54,7 +77,7 @@ export default function Overview() {
         </div>
       </div>
 
-      <BenchmarkChart data={benchmarks} loading={benchmarksLoading} blacklist={blacklist} />
+      <BenchmarkChart data={benchmarks} loading={benchmarksLoading} blacklist={blacklist} onBlacklist={handleBlacklist} />
 
       <div className="section">
         <div className="section-header">

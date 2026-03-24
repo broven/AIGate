@@ -22,6 +22,7 @@ interface BenchmarkChartProps {
   data: BenchmarkData | null
   loading?: boolean
   blacklist?: Set<string>
+  onBlacklist?: (deploymentId: string) => void
 }
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -54,21 +55,36 @@ function CustomTooltip({ active, payload }: any) {
     <div className="chart-tooltip">
       <div style={{ fontWeight: 600 }}>{data.canonical}</div>
       <div style={{ color: 'var(--text-secondary)' }}>{data.providerId}</div>
+      {data.groupName && <div style={{ color: 'var(--text-secondary)' }}>Group: {data.groupName}</div>}
       <div>Score: {data.y?.toFixed(2)}</div>
       <div>Price: ${data.x?.toFixed(2)}/1M tokens</div>
     </div>
   )
 }
 
-export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps) {
+interface PopoverPoint {
+  x: number
+  y: number
+  canonical: string
+  providerId: string
+  groupName?: string | null
+  deploymentId: string
+  screenX: number
+  screenY: number
+}
+
+export function BenchmarkChart({ data, loading, blacklist, onBlacklist }: BenchmarkChartProps) {
   const [selectedDimension, setSelectedDimension] = useState('artificial_analysis_intelligence_index')
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set())
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set())
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false)
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [modelSearch, setModelSearch] = useState('')
+  const [popover, setPopover] = useState<PopoverPoint | null>(null)
   const providerDropdownRef = useRef<HTMLDivElement>(null)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const chartContainerRef = useRef<HTMLDivElement>(null)
   const userHasInteractedProviders = useRef(false)
   const userHasInteractedModels = useRef(false)
 
@@ -116,7 +132,7 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
     }
   }, [data, blacklist])
 
-  // Close dropdowns on outside click
+  // Close dropdowns/popover on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (providerDropdownRef.current && !providerDropdownRef.current.contains(e.target as Node)) {
@@ -124,6 +140,9 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
       }
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
         setModelDropdownOpen(false)
+      }
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setPopover(null)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -193,7 +212,7 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
 
   const filteredGroups = useMemo(() => {
     if (!data) return []
-    const grouped = new Map<string, Array<{ x: number; y: number; canonical: string; providerId: string }>>()
+    const grouped = new Map<string, Array<{ x: number; y: number; canonical: string; providerId: string; groupName?: string | null; deploymentId: string }>>()
     for (const point of data.points) {
       const score = point.benchmarks[selectedDimension]
       if (score == null) continue
@@ -208,10 +227,30 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
         y: score,
         canonical: point.canonical,
         providerId: point.providerId,
+        groupName: point.groupName,
+        deploymentId: point.deploymentId,
       })
     }
     return [...grouped.entries()]
   }, [data, selectedDimension, selectedProviders, selectedModels, blacklist])
+
+  const handleScatterClick = useCallback((pointData: any, _: any, e: React.MouseEvent) => {
+    if (!onBlacklist) return
+    const rect = chartContainerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setPopover({
+      ...pointData,
+      screenX: e.clientX - rect.left,
+      screenY: e.clientY - rect.top,
+    })
+  }, [onBlacklist])
+
+  const handleBlacklist = useCallback(() => {
+    if (popover && onBlacklist) {
+      onBlacklist(popover.deploymentId)
+      setPopover(null)
+    }
+  }, [popover, onBlacklist])
 
   return (
     <div className="section">
@@ -327,7 +366,7 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
           <span style={{ color: 'var(--text-secondary)' }}>No benchmark data available</span>
         </div>
       ) : (
-        <div className="chart-container">
+        <div className="chart-container" ref={chartContainerRef} style={{ position: 'relative' }}>
           <ResponsiveContainer width="100%" height={400}>
             <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -353,10 +392,36 @@ export function BenchmarkChart({ data, loading, blacklist }: BenchmarkChartProps
                   name={providerId}
                   data={points}
                   fill={PROVIDER_COLORS[i % PROVIDER_COLORS.length]}
+                  onClick={onBlacklist ? handleScatterClick : undefined}
+                  cursor={onBlacklist ? 'pointer' : undefined}
                 />
               ))}
             </ScatterChart>
           </ResponsiveContainer>
+          {popover && (
+            <div
+              ref={popoverRef}
+              className="chart-popover"
+              style={{
+                position: 'absolute',
+                left: popover.screenX,
+                top: popover.screenY,
+                transform: 'translate(-50%, -100%) translateY(-12px)',
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>{popover.canonical}</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{popover.providerId}</div>
+              {popover.groupName && <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Group: {popover.groupName}</div>}
+              <div style={{ fontSize: 12 }}>Score: {popover.y?.toFixed(2)} | ${popover.x?.toFixed(2)}/1M</div>
+              <button
+                className="btn btn-danger"
+                style={{ marginTop: 6, width: '100%', fontSize: 12, padding: '4px 8px' }}
+                onClick={handleBlacklist}
+              >
+                Blacklist
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

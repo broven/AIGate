@@ -937,6 +937,30 @@ tr.expanded-content:hover td {
   line-height: 1.6;
 }
 
+.chart-popover {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  min-width: 180px;
+  pointer-events: auto;
+}
+
+.btn-danger {
+  background: var(--status-error, #ef4444);
+  color: #fff;
+  border-color: var(--status-error, #ef4444);
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
+}
+
 /* Provider Panel */
 .provider-panel {
   background: var(--bg-primary);
