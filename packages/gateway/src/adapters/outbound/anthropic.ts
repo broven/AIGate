@@ -132,6 +132,7 @@ export async function sendToAnthropic(
   return fetch(url, {
     method: 'POST',
     headers: {
+      ...req.clientHeaders,
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',

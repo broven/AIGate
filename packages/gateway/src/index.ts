@@ -54,6 +54,27 @@ interface RequestHandler {
   sourceFormat: 'openai' | 'gemini' | 'claude'
 }
 
+// Only these headers are safe to forward from clients to upstream providers.
+// Auth headers (authorization, x-api-key, x-goog-api-key, api-key, cookie, proxy-authorization)
+// and provider-specific control headers (anthropic-beta, openai-organization) are intentionally
+// excluded to prevent credential smuggling and provider-specific behavior leakage.
+const ALLOWED_CLIENT_HEADERS = new Set([
+  'accept',
+  'user-agent',
+  'x-request-id',
+])
+
+function extractClientHeaders(c: any): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const raw = c.req.raw.headers as Headers
+  raw.forEach((value: string, key: string) => {
+    if (ALLOWED_CLIENT_HEADERS.has(key.toLowerCase())) {
+      headers[key.toLowerCase()] = value
+    }
+  })
+  return headers
+}
+
 async function handleLLMRequest(
   c: any,
   handler: RequestHandler,
@@ -61,11 +82,13 @@ async function handleLLMRequest(
 ) {
   const body = await c.req.json()
   const gatewayKeyName = c.get('gatewayKeyName')
+  const clientHeaders = extractClientHeaders(c)
 
   let universalReq
   try {
     universalReq = await handler.parseRequest(body, gatewayKeyName, ...parseExtra)
     universalReq.model = canonicalize(universalReq.model)
+    universalReq.clientHeaders = clientHeaders
   } catch (error) {
     return c.json(
       handler.formatError(

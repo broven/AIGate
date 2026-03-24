@@ -66,6 +66,7 @@ export async function sendToOpenAICompatible(
   return fetch(url, {
     method: 'POST',
     headers: {
+      ...req.clientHeaders,
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
