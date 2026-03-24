@@ -9,6 +9,7 @@ import { parseAnthropicRequest, formatAnthropicResponse, formatAnthropicError } 
 import { parseGeminiRequest, formatGeminiResponse, formatGeminiError } from './adapters/inbound/gemini'
 import { routeRequest } from './router/price-router'
 import { logRequest } from './logging/request-logger'
+import { extractUsageFromStream } from './logging/stream-usage-extractor'
 import { initLlmsBridge, getTransformer, buildContext } from './adapters/llms-bridge'
 import type { ApiFormat } from './adapters/registry'
 import statsApi from './api/stats'
@@ -136,18 +137,21 @@ async function handleLLMRequest(
 
   // Streaming response
   if (routeResult.streamResponse) {
-    logRequest({
-      requestId: universalReq.id,
-      model: universalReq.model,
-      gatewayKey: gatewayKeyName,
-      sourceFormat: handler.sourceFormat,
-      routeResult,
+    const upstreamFormat = routeResult.upstreamFormat ?? 'openai'
+
+    // Extract usage from the raw upstream stream BEFORE any format transformation
+    const { passthrough, usage: usagePromise } = extractUsageFromStream(
+      routeResult.streamResponse.body!,
+      upstreamFormat,
+    )
+
+    // Build a new Response with the passthrough stream
+    let streamResponse = new Response(passthrough, {
+      status: routeResult.streamResponse.status,
+      headers: routeResult.streamResponse.headers,
     })
 
     // Transform stream if client format differs from upstream format
-    let streamResponse = routeResult.streamResponse
-    const upstreamFormat = routeResult.upstreamFormat ?? 'openai'
-
     if (handler.sourceFormat !== upstreamFormat) {
       streamResponse = await transformStreamFormat(
         streamResponse,
@@ -161,6 +165,33 @@ async function handleLLMRequest(
         return streamResponse
       }
     }
+
+    // Log after stream completes (fire-and-forget)
+    usagePromise.then((streamUsage) => {
+      logRequest({
+        requestId: universalReq.id,
+        model: universalReq.model,
+        gatewayKey: gatewayKeyName,
+        sourceFormat: handler.sourceFormat,
+        routeResult,
+        response: streamUsage ? {
+          id: '',
+          model: universalReq.model,
+          content: '',
+          finishReason: 'stop',
+          usage: streamUsage,
+        } : undefined,
+      })
+    }).catch((err) => {
+      console.error('Stream usage extraction failed:', err)
+      logRequest({
+        requestId: universalReq.id,
+        model: universalReq.model,
+        gatewayKey: gatewayKeyName,
+        sourceFormat: handler.sourceFormat,
+        routeResult,
+      })
+    })
 
     return new Response(streamResponse.body, {
       status: 200,

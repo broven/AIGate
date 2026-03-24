@@ -27,11 +27,18 @@ export async function logRequest(params: LogParams): Promise<void> {
       (a) => a.status === 'success',
     )
     if (successAttempt) {
-      // price is effective price ($/1M tokens weighted)
-      // For accurate cost: use actual input/output prices from deployment
-      cost = successAttempt.price * (inputTokens + outputTokens) / 1_000_000
-      if (routeResult.maxPrice > 0 && routeResult.maxPrice < Infinity) {
-        const worstCost = routeResult.maxPrice * (inputTokens + outputTokens) / 1_000_000
+      // Use actual input/output rates instead of blended effectivePrice
+      cost = (successAttempt.priceInput * inputTokens + successAttempt.priceOutput * outputTokens) / 1_000_000
+
+      // Worst-case cost: evaluate each deployment's paired rates against the actual
+      // token counts so skewed input-heavy or output-heavy requests are handled correctly
+      const worstCost = Math.max(
+        0,
+        ...routeResult.allPricePairs.map(
+          (p) => (p.priceInput * inputTokens + p.priceOutput * outputTokens) / 1_000_000,
+        ),
+      )
+      if (worstCost > 0) {
         savedVsDirect = worstCost - cost
       }
     }
