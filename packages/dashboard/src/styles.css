@@ -875,6 +875,125 @@ tr.expanded-content:hover td {
   line-height: 1.6;
 }
 
+/* Provider Panel */
+.provider-panel {
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+
+.deployment-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.deployment-table thead th {
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deployment-table tbody td {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.deployment-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.blacklisted-row {
+  opacity: 0.4;
+}
+
+.blacklisted-row td strong {
+  text-decoration: line-through;
+}
+
+/* Blacklist toggle switch */
+.blacklist-toggle {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.blacklist-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.blacklist-toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--border);
+  border-radius: 9px;
+  transition: background 0.2s;
+}
+
+.blacklist-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  bottom: 2px;
+  background: var(--text-secondary);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.blacklist-toggle input:checked + .blacklist-toggle-slider {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.blacklist-toggle input:checked + .blacklist-toggle-slider::before {
+  transform: translateX(14px);
+  background: var(--accent-red);
+}
+
+.blacklist-toggle input:disabled + .blacklist-toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Group sections for NewAPI */
+.group-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.group-section:last-child {
+  border-bottom: none;
+}
+
+.group-section.group-blacklisted {
+  opacity: 0.5;
+}
+
+.group-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.group-row:hover {
+  background: var(--bg-hover);
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
   .sidebar {

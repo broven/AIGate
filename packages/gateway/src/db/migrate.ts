@@ -131,6 +131,7 @@ const migrations = [
   `UPDATE model_preferences SET canonical = REPLACE(canonical, '2.5', '2-5') WHERE canonical LIKE '%2.5%'`,
   `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.5', '4-5') WHERE canonical LIKE '%4.5%'`,
   `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.6', '4-6') WHERE canonical LIKE '%4.6%'`,
+  `ALTER TABLE model_deployments ADD COLUMN blacklisted INTEGER NOT NULL DEFAULT 0`,
 ]
 
 for (const sql of migrations) {

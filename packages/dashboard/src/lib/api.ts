@@ -76,6 +76,7 @@ export interface ModelDeployment {
   manualPriceInput: number | null
   manualPriceOutput: number | null
   status: string
+  blacklisted: boolean
   lastSyncAt: string
 }
 
@@ -145,6 +146,12 @@ export const updateModelPrice = (deploymentId: string, priceInput: number | null
   request<{ ok: boolean }>(`/models/${deploymentId}/price`, {
     method: 'PUT',
     body: JSON.stringify({ priceInput, priceOutput }),
+  })
+
+export const setDeploymentBlacklist = (deploymentId: string, blacklisted: boolean) =>
+  request<{ ok: boolean }>(`/models/${deploymentId}/blacklist`, {
+    method: 'PUT',
+    body: JSON.stringify({ blacklisted }),
   })
 
 // Keys

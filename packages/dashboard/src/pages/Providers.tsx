@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { getProviders, createProvider, updateProvider, deleteProvider, syncProvider, getModels, type Provider, type ModelDeployment } from '../lib/api'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { getProviders, createProvider, updateProvider, deleteProvider, syncProvider, getModels, setDeploymentBlacklist, type Provider, type ModelDeployment } from '../lib/api'
 
 interface ProviderForm {
   id: string
@@ -29,9 +29,14 @@ const emptyForm: ProviderForm = {
   syncIntervalMinutes: 60,
 }
 
+function formatPrice(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—'
+  return `$${v.toFixed(2)}`
+}
+
 export default function Providers() {
   const [providers, setProviders] = useState<Provider[]>([])
-  const [modelCounts, setModelCounts] = useState<Record<string, number>>({})
+  const [allDeployments, setAllDeployments] = useState<ModelDeployment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -41,21 +46,16 @@ export default function Providers() {
   const [syncing, setSyncing] = useState<Record<string, boolean>>({})
   const [syncResult, setSyncResult] = useState<{ id: string; message: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [togglingBlacklist, setTogglingBlacklist] = useState<Set<string>>(new Set())
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const [providerList, modelList] = await Promise.all([getProviders(), getModels()])
       setProviders(providerList)
-
-      const counts: Record<string, number> = {}
-      for (const model of modelList) {
-        const pid = model.providerId
-        if (pid) {
-          counts[pid] = (counts[pid] || 0) + 1
-        }
-      }
-      setModelCounts(counts)
+      setAllDeployments(modelList)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load providers')
@@ -67,6 +67,121 @@ export default function Providers() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // Group deployments by provider
+  const deploymentsByProvider = useMemo(() => {
+    const map: Record<string, ModelDeployment[]> = {}
+    for (const d of allDeployments) {
+      if (!map[d.providerId]) map[d.providerId] = []
+      map[d.providerId].push(d)
+    }
+    return map
+  }, [allDeployments])
+
+  function toggleProvider(id: string) {
+    setExpandedProviders((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  async function handleToggleDeploymentBlacklist(deploymentId: string, currentBlacklisted: boolean) {
+    const newVal = !currentBlacklisted
+    setTogglingBlacklist((prev) => new Set(prev).add(deploymentId))
+    // Optimistic update
+    setAllDeployments((prev) =>
+      prev.map((d) => d.deploymentId === deploymentId ? { ...d, blacklisted: newVal } : d),
+    )
+    try {
+      await setDeploymentBlacklist(deploymentId, newVal)
+    } catch {
+      // Revert on failure
+      setAllDeployments((prev) =>
+        prev.map((d) => d.deploymentId === deploymentId ? { ...d, blacklisted: currentBlacklisted } : d),
+      )
+    } finally {
+      setTogglingBlacklist((prev) => {
+        const next = new Set(prev)
+        next.delete(deploymentId)
+        return next
+      })
+    }
+  }
+
+  async function handleToggleGroupBlacklist(provider: Provider, groupName: string) {
+    const currentBlackGroups = provider.blackGroupMatch ?? []
+    const isBlacklisted = currentBlackGroups.some(
+      (p) => groupName.toLowerCase().includes(p.toLowerCase()),
+    )
+
+    let newBlackGroups: string[]
+    if (isBlacklisted) {
+      // Remove matching patterns
+      newBlackGroups = currentBlackGroups.filter(
+        (p) => !groupName.toLowerCase().includes(p.toLowerCase()),
+      )
+    } else {
+      // Add exact group name
+      newBlackGroups = [...currentBlackGroups, groupName]
+    }
+
+    const newBlacklisted = !isBlacklisted
+
+    // Optimistic update: provider blackGroupMatch
+    setProviders((prev) =>
+      prev.map((p) => p.id === provider.id ? { ...p, blackGroupMatch: newBlackGroups } : p),
+    )
+    // Optimistic update: all deployments in this group
+    setAllDeployments((prev) =>
+      prev.map((d) =>
+        d.providerId === provider.id && d.groupName === groupName
+          ? { ...d, blacklisted: newBlacklisted }
+          : d,
+      ),
+    )
+
+    try {
+      await updateProvider(provider.id, {
+        type: provider.type,
+        apiFormat: provider.apiFormat,
+        endpoint: provider.endpoint,
+        costMultiplier: provider.costMultiplier,
+        syncEnabled: provider.syncEnabled,
+        syncIntervalMinutes: provider.syncIntervalMinutes,
+        blackGroupMatch: newBlackGroups,
+      })
+      // Batch blacklist all deployments in this group
+      const groupDeployments = allDeployments.filter(
+        (d) => d.providerId === provider.id && d.groupName === groupName,
+      )
+      await Promise.all(
+        groupDeployments.map((d) => setDeploymentBlacklist(d.deploymentId, newBlacklisted)),
+      )
+    } catch {
+      // Revert on failure
+      setProviders((prev) =>
+        prev.map((p) => p.id === provider.id ? { ...p, blackGroupMatch: currentBlackGroups } : p),
+      )
+      setAllDeployments((prev) =>
+        prev.map((d) =>
+          d.providerId === provider.id && d.groupName === groupName
+            ? { ...d, blacklisted: isBlacklisted }
+            : d,
+        ),
+      )
+    }
+  }
 
   function openAdd() {
     setForm(emptyForm)
@@ -209,38 +324,33 @@ export default function Providers() {
               </tr>
             </thead>
             <tbody>
-              {providers.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <strong>{p.id}</strong>
-                    {p.syncEnabled && <span className="status-dot" style={{ background: '#2ecc71', marginLeft: '0.5rem' }} title="Sync enabled" />}
-                  </td>
-                  <td>
-                    <span className="badge">{p.type}</span>
-                  </td>
-                  <td style={{ maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.endpoint}>
-                    {p.endpoint}
-                  </td>
-                  <td>{modelCounts[p.id] ?? 0}</td>
-                  <td>{formatDate(p.lastSyncAt)}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button
-                        className="btn"
-                        onClick={() => handleSync(p.id)}
-                        disabled={syncing[p.id]}
-                      >
-                        {syncing[p.id] ? 'Syncing...' : 'Sync Now'}
-                      </button>
-                      <button className="btn" onClick={() => openEdit(p)}>Edit</button>
-                      <button className="btn btn-danger" onClick={() => setDeleteConfirm(p.id)}>Delete</button>
-                    </div>
-                    {syncResult?.id === p.id && (
-                      <div style={{ marginTop: '0.25rem', fontSize: '0.8rem', opacity: 0.8 }}>{syncResult.message}</div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {providers.map((p) => {
+                const isExpanded = expandedProviders.has(p.id)
+                const providerDeployments = deploymentsByProvider[p.id] || []
+                const modelCount = providerDeployments.length
+
+                return (
+                  <ProviderRow
+                    key={p.id}
+                    provider={p}
+                    isExpanded={isExpanded}
+                    modelCount={modelCount}
+                    deployments={providerDeployments}
+                    expandedGroups={expandedGroups}
+                    togglingBlacklist={togglingBlacklist}
+                    syncing={syncing[p.id] || false}
+                    syncResultMessage={syncResult?.id === p.id ? syncResult.message : null}
+                    onToggleExpand={() => toggleProvider(p.id)}
+                    onToggleGroup={toggleGroup}
+                    onToggleDeploymentBlacklist={handleToggleDeploymentBlacklist}
+                    onToggleGroupBlacklist={(groupName) => handleToggleGroupBlacklist(p, groupName)}
+                    onSync={() => handleSync(p.id)}
+                    onEdit={() => openEdit(p)}
+                    onDelete={() => setDeleteConfirm(p.id)}
+                    formatDate={formatDate}
+                  />
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -398,6 +508,238 @@ export default function Providers() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// --- Sub-components ---
+
+interface ProviderRowProps {
+  provider: Provider
+  isExpanded: boolean
+  modelCount: number
+  deployments: ModelDeployment[]
+  expandedGroups: Set<string>
+  togglingBlacklist: Set<string>
+  syncing: boolean
+  syncResultMessage: string | null
+  onToggleExpand: () => void
+  onToggleGroup: (key: string) => void
+  onToggleDeploymentBlacklist: (deploymentId: string, currentBlacklisted: boolean) => void
+  onToggleGroupBlacklist: (groupName: string) => void
+  onSync: () => void
+  onEdit: () => void
+  onDelete: () => void
+  formatDate: (dateStr?: string | null) => string
+}
+
+function ProviderRow({
+  provider: p, isExpanded, modelCount, deployments, expandedGroups, togglingBlacklist,
+  syncing, syncResultMessage,
+  onToggleExpand, onToggleGroup, onToggleDeploymentBlacklist, onToggleGroupBlacklist,
+  onSync, onEdit, onDelete, formatDate,
+}: ProviderRowProps) {
+  return (
+    <>
+      <tr
+        onClick={onToggleExpand}
+        style={{ cursor: 'pointer', background: isExpanded ? 'var(--bg-hover)' : undefined }}
+      >
+        <td>
+          <span style={{ color: 'var(--accent-blue)', marginRight: 6, fontSize: 11 }}>
+            {isExpanded ? '▼' : '▶'}
+          </span>
+          <strong>{p.id}</strong>
+          {p.syncEnabled && <span className="status-dot" style={{ background: '#2ecc71', marginLeft: '0.5rem' }} title="Sync enabled" />}
+        </td>
+        <td>
+          <span className="badge">{p.type}</span>
+        </td>
+        <td style={{ maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.endpoint}>
+          {p.endpoint}
+        </td>
+        <td>{modelCount}</td>
+        <td>{formatDate(p.lastSyncAt)}</td>
+        <td onClick={(e) => e.stopPropagation()}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="btn" onClick={onSync} disabled={syncing}>
+              {syncing ? 'Syncing...' : 'Sync Now'}
+            </button>
+            <button className="btn" onClick={onEdit}>Edit</button>
+            <button className="btn btn-danger" onClick={onDelete}>Delete</button>
+          </div>
+          {syncResultMessage && (
+            <div style={{ marginTop: '0.25rem', fontSize: '0.8rem', opacity: 0.8 }}>{syncResultMessage}</div>
+          )}
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={6} style={{ padding: 0 }}>
+            <div className="provider-panel">
+              {deployments.length === 0 ? (
+                <div style={{ padding: '1rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  No models synced yet. Click "Sync Now" to discover models.
+                </div>
+              ) : p.type === 'newapi' ? (
+                <NewAPIPanel
+                  provider={p}
+                  deployments={deployments}
+                  expandedGroups={expandedGroups}
+                  togglingBlacklist={togglingBlacklist}
+                  onToggleGroup={onToggleGroup}
+                  onToggleDeploymentBlacklist={onToggleDeploymentBlacklist}
+                  onToggleGroupBlacklist={onToggleGroupBlacklist}
+                />
+              ) : (
+                <DeploymentTable
+                  deployments={deployments}
+                  togglingBlacklist={togglingBlacklist}
+                  onToggleBlacklist={onToggleDeploymentBlacklist}
+                />
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+interface DeploymentTableProps {
+  deployments: ModelDeployment[]
+  togglingBlacklist: Set<string>
+  onToggleBlacklist: (deploymentId: string, currentBlacklisted: boolean) => void
+}
+
+function DeploymentTable({ deployments, togglingBlacklist, onToggleBlacklist }: DeploymentTableProps) {
+  const sorted = [...deployments].sort((a, b) => a.canonical.localeCompare(b.canonical))
+
+  return (
+    <table className="deployment-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Upstream</th>
+          <th>Price In</th>
+          <th>Price Out</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th style={{ width: 80, textAlign: 'center' }}>Block</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((d) => (
+          <tr
+            key={d.deploymentId}
+            className={d.blacklisted ? 'blacklisted-row' : ''}
+          >
+            <td><strong>{d.canonical}</strong></td>
+            <td style={{ color: 'var(--text-secondary)' }}>{d.upstream}</td>
+            <td className="mono">{formatPrice(d.manualPriceInput ?? d.priceInput)}</td>
+            <td className="mono">{formatPrice(d.manualPriceOutput ?? d.priceOutput)}</td>
+            <td><span className="badge" style={{ fontSize: 10 }}>{d.priceSource}</span></td>
+            <td>
+              <span className={`badge ${d.status === 'active' ? 'green' : 'yellow'}`} style={{ fontSize: 11 }}>
+                {d.status}
+              </span>
+            </td>
+            <td style={{ textAlign: 'center' }}>
+              <label className="blacklist-toggle" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={d.blacklisted}
+                  disabled={togglingBlacklist.has(d.deploymentId)}
+                  onChange={() => onToggleBlacklist(d.deploymentId, d.blacklisted)}
+                />
+                <span className="blacklist-toggle-slider" />
+              </label>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+interface NewAPIPanelProps {
+  provider: Provider
+  deployments: ModelDeployment[]
+  expandedGroups: Set<string>
+  togglingBlacklist: Set<string>
+  onToggleGroup: (key: string) => void
+  onToggleDeploymentBlacklist: (deploymentId: string, currentBlacklisted: boolean) => void
+  onToggleGroupBlacklist: (groupName: string) => void
+}
+
+function NewAPIPanel({
+  provider, deployments, expandedGroups, togglingBlacklist,
+  onToggleGroup, onToggleDeploymentBlacklist, onToggleGroupBlacklist,
+}: NewAPIPanelProps) {
+  // Group by groupName
+  const groups = useMemo(() => {
+    const map = new Map<string, ModelDeployment[]>()
+    for (const d of deployments) {
+      const gn = d.groupName || '(ungrouped)'
+      if (!map.has(gn)) map.set(gn, [])
+      map.get(gn)!.push(d)
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [deployments])
+
+  const blackGroupMatch = provider.blackGroupMatch ?? []
+
+  return (
+    <div>
+      {groups.map(([groupName, groupDeployments]) => {
+        const groupKey = `${provider.id}:${groupName}`
+        const isGroupExpanded = expandedGroups.has(groupKey)
+        const isGroupBlacklisted = blackGroupMatch.some(
+          (pattern) => groupName.toLowerCase().includes(pattern.toLowerCase()),
+        )
+
+        return (
+          <div key={groupName} className={`group-section ${isGroupBlacklisted ? 'group-blacklisted' : ''}`}>
+            <div
+              className="group-row"
+              onClick={() => onToggleGroup(groupKey)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                <span style={{ color: 'var(--accent-blue)', fontSize: 11 }}>
+                  {isGroupExpanded ? '▼' : '▶'}
+                </span>
+                <strong style={{ textDecoration: isGroupBlacklisted ? 'line-through' : undefined }}>
+                  {groupName}
+                </strong>
+                <span className="badge" style={{ fontSize: 11 }}>
+                  {groupDeployments.length} model{groupDeployments.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <label
+                className="blacklist-toggle"
+                onClick={(e) => e.stopPropagation()}
+                title={isGroupBlacklisted ? 'Unblock group' : 'Block group'}
+              >
+                <input
+                  type="checkbox"
+                  checked={isGroupBlacklisted}
+                  onChange={() => onToggleGroupBlacklist(groupName)}
+                />
+                <span className="blacklist-toggle-slider" />
+              </label>
+            </div>
+            {isGroupExpanded && (
+              <div style={{ paddingLeft: 16 }}>
+                <DeploymentTable
+                  deployments={groupDeployments}
+                  togglingBlacklist={togglingBlacklist}
+                  onToggleBlacklist={onToggleDeploymentBlacklist}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

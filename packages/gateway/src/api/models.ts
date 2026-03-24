@@ -19,11 +19,25 @@ app.get('/', async (c) => {
       manualPriceInput: schema.modelDeployments.manualPriceInput,
       manualPriceOutput: schema.modelDeployments.manualPriceOutput,
       status: schema.modelDeployments.status,
+      blacklisted: schema.modelDeployments.blacklisted,
       lastSyncAt: schema.modelDeployments.lastSyncAt,
     })
     .from(schema.modelDeployments)
 
   return c.json(rows)
+})
+
+// PUT /api/models/:deploymentId/blacklist — toggle deployment blacklist
+app.put('/:deploymentId/blacklist', async (c) => {
+  const deploymentId = c.req.param('deploymentId')
+  const body = await c.req.json<{ blacklisted: boolean }>()
+
+  await db
+    .update(schema.modelDeployments)
+    .set({ blacklisted: body.blacklisted ? true : false })
+    .where(eq(schema.modelDeployments.deploymentId, deploymentId))
+
+  return c.json({ ok: true })
 })
 
 // PUT /api/models/:deploymentId/price — manual price override

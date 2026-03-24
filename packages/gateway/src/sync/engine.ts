@@ -1,4 +1,4 @@
-import { eq, and, notInArray } from 'drizzle-orm'
+import { eq, and, notInArray, inArray } from 'drizzle-orm'
 import { db, schema } from '../db'
 import { syncNewAPIProvider, type SyncedModel } from './newapi'
 import { syncOpenAICompatibleProvider } from './openai-compat'
@@ -84,18 +84,67 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
     }
   }
 
-  // Delete deployments not seen in this sync
+  // Also un-blacklist synced deployments (group may have been un-blacklisted)
+  if (seenDeploymentIds.length > 0) {
+    await db
+      .update(schema.modelDeployments)
+      .set({ blacklisted: false })
+      .where(
+        and(
+          eq(schema.modelDeployments.providerId, provider.id),
+          eq(schema.modelDeployments.blacklisted, true),
+          inArray(schema.modelDeployments.deploymentId, seenDeploymentIds),
+        ),
+      )
+  }
+
+  // Handle unseen deployments: preserve blacklisted-group ones, delete the rest
   let modelsRemoved = 0
   if (seenDeploymentIds.length > 0) {
-    const deleteResult = await db
-      .delete(schema.modelDeployments)
+    // Find unseen deployments for this provider
+    const unseenRows = await db
+      .select({
+        deploymentId: schema.modelDeployments.deploymentId,
+        groupName: schema.modelDeployments.groupName,
+      })
+      .from(schema.modelDeployments)
       .where(
         and(
           eq(schema.modelDeployments.providerId, provider.id),
           notInArray(schema.modelDeployments.deploymentId, seenDeploymentIds),
         ),
       )
-    modelsRemoved = 0
+
+    const toDelete: string[] = []
+    const toBlacklist: string[] = []
+
+    for (const row of unseenRows) {
+      // Check if this deployment belongs to a blacklisted group
+      const isGroupBlacklisted = row.groupName && blackGroupMatch.some(
+        (pattern) => row.groupName!.toLowerCase().includes(pattern.toLowerCase()),
+      )
+      if (isGroupBlacklisted) {
+        toBlacklist.push(row.deploymentId)
+      } else {
+        toDelete.push(row.deploymentId)
+      }
+    }
+
+    // Mark blacklisted-group deployments
+    if (toBlacklist.length > 0) {
+      await db
+        .update(schema.modelDeployments)
+        .set({ blacklisted: true })
+        .where(inArray(schema.modelDeployments.deploymentId, toBlacklist))
+    }
+
+    // Delete truly removed deployments
+    if (toDelete.length > 0) {
+      await db
+        .delete(schema.modelDeployments)
+        .where(inArray(schema.modelDeployments.deploymentId, toDelete))
+      modelsRemoved = toDelete.length
+    }
   }
 
   // Update provider last sync time

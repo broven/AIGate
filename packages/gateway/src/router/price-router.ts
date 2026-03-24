@@ -74,6 +74,7 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       and(
         eq(schema.modelDeployments.canonical, model),
         eq(schema.modelDeployments.status, 'active'),
+        eq(schema.modelDeployments.blacklisted, false),
       ),
     )
 

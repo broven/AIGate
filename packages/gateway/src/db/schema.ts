@@ -38,6 +38,7 @@ export const modelDeployments = sqliteTable('model_deployments', {
   }).notNull().default('unknown'),
   manualPriceInput: real('manual_price_input'),
   manualPriceOutput: real('manual_price_output'),
+  blacklisted: integer('blacklisted', { mode: 'boolean' }).notNull().default(false),
   status: text('status', { enum: ['active', 'stale'] }).notNull().default('active'),
   lastSyncAt: text('last_sync_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [

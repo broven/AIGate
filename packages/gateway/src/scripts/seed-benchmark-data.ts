@@ -32,6 +32,16 @@ const providers = [
     syncEnabled: false,
     syncIntervalMinutes: 60,
   },
+  {
+    id: 'mock-newapi',
+    type: 'newapi' as const,
+    apiFormat: 'openai' as const,
+    endpoint: 'https://newapi.example.com',
+    apiKey: 'sk-mock-newapi',
+    costMultiplier: 0.5,
+    syncEnabled: false,
+    syncIntervalMinutes: 60,
+  },
 ]
 
 const deployments = [
@@ -47,6 +57,13 @@ const deployments = [
   { canonical: 'gemini-2-5-flash', providerId: 'mock-google', priceInput: 0.15, priceOutput: 0.6 },
   { canonical: 'deepseek-chat', providerId: 'mock-openai', priceInput: 0.27, priceOutput: 1.1 },
   { canonical: 'deepseek-r1', providerId: 'mock-anthropic', priceInput: 0.55, priceOutput: 2.19 },
+  // NewAPI grouped deployments
+  { canonical: 'gpt-4o', providerId: 'mock-newapi', groupName: 'US-Forward', priceInput: 2.0, priceOutput: 8.0 },
+  { canonical: 'claude-sonnet-4', providerId: 'mock-newapi', groupName: 'US-Forward', priceInput: 2.5, priceOutput: 12.0 },
+  { canonical: 'gpt-4o', providerId: 'mock-newapi', groupName: 'CN-Forward', priceInput: 3.0, priceOutput: 12.0 },
+  { canonical: 'deepseek-chat', providerId: 'mock-newapi', groupName: 'CN-Forward', priceInput: 0.14, priceOutput: 0.28 },
+  { canonical: 'deepseek-r1', providerId: 'mock-newapi', groupName: 'CN-Forward', priceInput: 0.55, priceOutput: 2.19 },
+  { canonical: 'gemini-2-5-pro', providerId: 'mock-newapi', groupName: 'Google-Direct', priceInput: 1.25, priceOutput: 10.0 },
 ]
 
 async function seed() {
@@ -74,7 +91,10 @@ async function seed() {
 
   // Upsert model deployments
   for (const d of deployments) {
-    const deploymentId = `${d.providerId}:${d.canonical}`
+    const groupName = (d as { groupName?: string }).groupName ?? null
+    const deploymentId = groupName
+      ? `${d.providerId}-${groupName}-${d.canonical}`
+      : `${d.providerId}:${d.canonical}`
     await db
       .insert(schema.modelDeployments)
       .values({
@@ -82,6 +102,7 @@ async function seed() {
         providerId: d.providerId,
         canonical: d.canonical,
         upstream: d.canonical,
+        groupName,
         priceInput: d.priceInput,
         priceOutput: d.priceOutput,
         priceSource: 'manual',
@@ -93,6 +114,7 @@ async function seed() {
           providerId: d.providerId,
           canonical: d.canonical,
           upstream: d.canonical,
+          groupName,
           priceInput: d.priceInput,
           priceOutput: d.priceOutput,
           priceSource: 'manual',
