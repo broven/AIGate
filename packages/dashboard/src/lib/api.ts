@@ -175,6 +175,8 @@ export const createKey = (name: string) =>
   })
 export const deleteKey = (id: string) =>
   request<{ ok: boolean }>(`/keys/${id}`, { method: 'DELETE' })
+export const getKeyStats = () =>
+  request<Record<string, { requests: number; tokens: number; cost: number }>>('/keys/stats')
 export const getKeyUsage = (id: string) =>
   request<KeyUsage>(`/keys/${id}/usage`)
 

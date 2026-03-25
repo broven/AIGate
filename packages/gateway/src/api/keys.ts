@@ -45,6 +45,31 @@ app.delete('/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// GET /api/keys/stats — aggregate usage for all keys
+app.get('/stats', async (c) => {
+  const rows = await db
+    .select({
+      keyId: schema.gatewayKeys.id,
+      requests: sql<number>`coalesce(sum(${schema.dailyUsage.requestCount}), 0)`,
+      inputTokens: sql<number>`coalesce(sum(${schema.dailyUsage.totalInputTokens}), 0)`,
+      outputTokens: sql<number>`coalesce(sum(${schema.dailyUsage.totalOutputTokens}), 0)`,
+      cost: sql<number>`coalesce(sum(${schema.dailyUsage.totalCost}), 0)`,
+    })
+    .from(schema.gatewayKeys)
+    .leftJoin(schema.dailyUsage, eq(schema.dailyUsage.gatewayKey, schema.gatewayKeys.name))
+    .groupBy(schema.gatewayKeys.id)
+
+  const result: Record<string, { requests: number; tokens: number; cost: number }> = {}
+  for (const row of rows) {
+    result[row.keyId] = {
+      requests: row.requests,
+      tokens: row.inputTokens + row.outputTokens,
+      cost: row.cost,
+    }
+  }
+  return c.json(result)
+})
+
 // GET /api/keys/:id/usage
 app.get('/:id/usage', async (c) => {
   const id = c.req.param('id')
