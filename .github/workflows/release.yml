@@ -67,3 +67,8 @@ jobs:
           build-args: APP_VERSION=${{ steps.check.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trigger deploy webhook
+        run: |
+          curl -sf https://admin.paas.randysoft.link/api/v1/deploy?uuid=f11ml6scf5d9x5x7ki6neq7t&force=true \
+            --header 'Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}'
