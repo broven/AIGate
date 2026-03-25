@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { getKeys, createKey, deleteKey, getKeyUsage } from '../lib/api'
+import { getKeys, createKey, deleteKey, getKeyUsage, getKeyStats } from '../lib/api'
 import type { GatewayKey, KeyUsage } from '../lib/api'
 
 function CopyButton({ text }: { text: string }) {
@@ -249,8 +249,9 @@ export default function ApiKeys() {
   const fetchKeys = useCallback(async () => {
     setError(null)
     try {
-      const data = await getKeys()
+      const [data, stats] = await Promise.all([getKeys(), getKeyStats()])
       setKeys(data)
+      setKeyStats(stats)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load keys')
     } finally {
