@@ -132,28 +132,6 @@ const migrations = [
   `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.5', '4-5') WHERE canonical LIKE '%4.5%'`,
   `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.6', '4-6') WHERE canonical LIKE '%4.6%'`,
   `ALTER TABLE model_deployments ADD COLUMN blacklisted INTEGER NOT NULL DEFAULT 0`,
-  // Widen providers.type CHECK to include 'anthropic' — SQLite doesn't support ALTER CHECK,
-  // so we recreate the table. Must disable FK to avoid cascade-deleting dependents on DROP.
-  `PRAGMA foreign_keys = OFF`,
-  `CREATE TABLE IF NOT EXISTS providers_new (
-    id TEXT PRIMARY KEY,
-    type TEXT NOT NULL CHECK(type IN ('newapi', 'openai-compatible', 'anthropic')),
-    api_format TEXT NOT NULL DEFAULT 'openai' CHECK(api_format IN ('openai', 'claude', 'gemini')),
-    endpoint TEXT NOT NULL,
-    api_key TEXT DEFAULT '',
-    cost_multiplier REAL NOT NULL DEFAULT 1.0,
-    new_api_user_id INTEGER,
-    access_token TEXT,
-    black_group_match TEXT,
-    sync_enabled INTEGER NOT NULL DEFAULT 1,
-    sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
-    last_sync_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`,
-  `INSERT OR IGNORE INTO providers_new SELECT * FROM providers`,
-  `DROP TABLE providers`,
-  `ALTER TABLE providers_new RENAME TO providers`,
-  `PRAGMA foreign_keys = ON`,
 ]
 
 for (const sql of migrations) {
@@ -162,6 +140,46 @@ for (const sql of migrations) {
   } catch {
     // Column already exists or migration already applied
   }
+}
+
+// One-shot: widen providers.type CHECK to include 'anthropic'.
+// Only runs if the CHECK constraint still uses the old list.
+// SQLite doesn't support ALTER CHECK, so we recreate the table inside a transaction.
+const currentDDL = sqlite
+  .query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='providers'`)
+  .get() as { sql: string } | null
+if (currentDDL && !currentDDL.sql.includes("'anthropic'")) {
+  console.log('[migrate] Widening providers.type CHECK to include anthropic…')
+  sqlite.exec('PRAGMA foreign_keys = OFF')
+  sqlite.exec('BEGIN IMMEDIATE')
+  try {
+    sqlite.exec(`
+      CREATE TABLE providers_new (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL CHECK(type IN ('newapi', 'openai-compatible', 'anthropic')),
+        api_format TEXT NOT NULL DEFAULT 'openai' CHECK(api_format IN ('openai', 'claude', 'gemini')),
+        endpoint TEXT NOT NULL,
+        api_key TEXT DEFAULT '',
+        cost_multiplier REAL NOT NULL DEFAULT 1.0,
+        new_api_user_id INTEGER,
+        access_token TEXT,
+        black_group_match TEXT,
+        sync_enabled INTEGER NOT NULL DEFAULT 1,
+        sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+        last_sync_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `)
+    sqlite.exec('INSERT INTO providers_new SELECT * FROM providers')
+    sqlite.exec('DROP TABLE providers')
+    sqlite.exec('ALTER TABLE providers_new RENAME TO providers')
+    sqlite.exec('COMMIT')
+    console.log('[migrate] providers.type CHECK widened successfully')
+  } catch (e) {
+    sqlite.exec('ROLLBACK')
+    console.error('[migrate] Failed to widen providers.type CHECK:', e)
+  }
+  sqlite.exec('PRAGMA foreign_keys = ON')
 }
 
 console.log('Database migrated successfully')
