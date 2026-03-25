@@ -71,4 +71,4 @@ jobs:
       - name: Trigger deploy webhook
         run: |
           curl -sf "https://admin.paas.randysoft.link/api/v1/deploy?uuid=f11ml6scf5d9x5x7ki6neq7t&force=true" \
-            --header "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}"
+            --header "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
