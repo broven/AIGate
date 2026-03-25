@@ -69,8 +69,7 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          push: true
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           build-args: APP_VERSION=${{ needs.prepare.outputs.tag }}
           cache-from: type=gha,scope=${{ matrix.platform }}
