@@ -198,3 +198,15 @@ export const getBenchmarks = () => request<BenchmarkData>('/benchmarks')
 
 // Health
 export const getHealth = () => request<{ status: string; timestamp: string }>('/health')
+
+// Cooldowns
+export interface CooldownEntry {
+  deploymentId: string
+  until: number
+  remainingMs: number
+  consecutiveFailures: number
+}
+
+export const getCooldowns = () => request<CooldownEntry[]>('/cooldowns')
+export const resetCooldown = (deploymentId: string) =>
+  request<{ ok: boolean }>(`/cooldowns/${encodeURIComponent(deploymentId)}/reset`, { method: 'POST' })
