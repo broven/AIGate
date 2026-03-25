@@ -116,71 +116,88 @@ sqlite.exec(`
   );
 `)
 
-// Migrations for existing databases
-const migrations = [
-  `ALTER TABLE model_deployments ADD COLUMN api_key TEXT`,
-  `ALTER TABLE providers ALTER COLUMN api_key DROP NOT NULL`, // SQLite ignores this but harmless
-  `DELETE FROM model_deployments WHERE status = 'stale'`,
-  `ALTER TABLE providers ADD COLUMN api_format TEXT NOT NULL DEFAULT 'openai'`,
-  `ALTER TABLE sync_logs ADD COLUMN models_removed INTEGER DEFAULT 0`,
-  `ALTER TABLE gateway_keys ADD COLUMN key_plain TEXT NOT NULL DEFAULT ''`,
-  `ALTER TABLE gateway_keys DROP COLUMN key_hash`,
-  `ALTER TABLE gateway_keys DROP COLUMN key_prefix`,
-  // Normalize version dots to dashes in model_preferences (user-set data, not auto-synced)
-  `UPDATE model_preferences SET canonical = REPLACE(canonical, '3.5', '3-5') WHERE canonical LIKE '%3.5%'`,
-  `UPDATE model_preferences SET canonical = REPLACE(canonical, '2.5', '2-5') WHERE canonical LIKE '%2.5%'`,
-  `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.5', '4-5') WHERE canonical LIKE '%4.5%'`,
-  `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.6', '4-6') WHERE canonical LIKE '%4.6%'`,
-  `ALTER TABLE model_deployments ADD COLUMN blacklisted INTEGER NOT NULL DEFAULT 0`,
+// ---------------------------------------------------------------------------
+// Versioned migrations — tracked by PRAGMA user_version.
+// Each migration runs exactly once. Add new entries at the end.
+// ---------------------------------------------------------------------------
+
+type Migration = {
+  version: number
+  description: string
+  up: (db: Database) => void
+}
+
+const migrations: Migration[] = [
+  {
+    version: 1,
+    description: 'Legacy schema updates',
+    up(db) {
+      // Idempotent ALTER TABLE statements from pre-versioned era.
+      // try/catch per statement: columns may already exist from CREATE TABLE.
+      const stmts = [
+        'ALTER TABLE model_deployments ADD COLUMN api_key TEXT',
+        'ALTER TABLE providers ADD COLUMN api_format TEXT NOT NULL DEFAULT \'openai\'',
+        'ALTER TABLE sync_logs ADD COLUMN models_removed INTEGER DEFAULT 0',
+        'ALTER TABLE gateway_keys ADD COLUMN key_plain TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE gateway_keys DROP COLUMN key_hash',
+        'ALTER TABLE gateway_keys DROP COLUMN key_prefix',
+        `UPDATE model_preferences SET canonical = REPLACE(canonical, '3.5', '3-5') WHERE canonical LIKE '%3.5%'`,
+        `UPDATE model_preferences SET canonical = REPLACE(canonical, '2.5', '2-5') WHERE canonical LIKE '%2.5%'`,
+        `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.5', '4-5') WHERE canonical LIKE '%4.5%'`,
+        `UPDATE model_preferences SET canonical = REPLACE(canonical, '4.6', '4-6') WHERE canonical LIKE '%4.6%'`,
+        'ALTER TABLE model_deployments ADD COLUMN blacklisted INTEGER NOT NULL DEFAULT 0',
+      ]
+      for (const sql of stmts) {
+        try { db.exec(sql) } catch { /* already applied */ }
+      }
+    },
+  },
+  {
+    version: 2,
+    description: 'Widen providers.type CHECK to include anthropic',
+    up(db) {
+      const row = db.query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='providers'`).get() as { sql: string } | null
+      if (!row || row.sql.includes("'anthropic'")) return // already correct
+
+      // SQLite official 12-step table recreation procedure
+      db.exec('PRAGMA foreign_keys = OFF')
+      db.exec('BEGIN IMMEDIATE')
+      db.exec(`
+        CREATE TABLE providers_new (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('newapi', 'openai-compatible', 'anthropic')),
+          api_format TEXT NOT NULL DEFAULT 'openai' CHECK(api_format IN ('openai', 'claude', 'gemini')),
+          endpoint TEXT NOT NULL,
+          api_key TEXT DEFAULT '',
+          cost_multiplier REAL NOT NULL DEFAULT 1.0,
+          new_api_user_id INTEGER,
+          access_token TEXT,
+          black_group_match TEXT,
+          sync_enabled INTEGER NOT NULL DEFAULT 1,
+          sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+          last_sync_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      db.exec('INSERT INTO providers_new SELECT * FROM providers')
+      db.exec('DROP TABLE providers')
+      db.exec('ALTER TABLE providers_new RENAME TO providers')
+      db.exec('PRAGMA foreign_key_check')
+      db.exec('COMMIT')
+      db.exec('PRAGMA foreign_keys = ON')
+    },
+  },
 ]
 
-for (const sql of migrations) {
-  try {
-    sqlite.exec(sql)
-  } catch {
-    // Column already exists or migration already applied
-  }
+// Run pending migrations
+const currentVersion = (sqlite.query('PRAGMA user_version').get() as { user_version: number }).user_version
+
+for (const m of migrations) {
+  if (m.version <= currentVersion) continue
+  console.log(`[migrate] v${m.version}: ${m.description}`)
+  m.up(sqlite)
+  sqlite.exec(`PRAGMA user_version = ${m.version}`)
 }
 
-// One-shot: widen providers.type CHECK to include 'anthropic'.
-// Only runs if the CHECK constraint still uses the old list.
-// SQLite doesn't support ALTER CHECK, so we recreate the table inside a transaction.
-const currentDDL = sqlite
-  .query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='providers'`)
-  .get() as { sql: string } | null
-if (currentDDL && !currentDDL.sql.includes("'anthropic'")) {
-  console.log('[migrate] Widening providers.type CHECK to include anthropic…')
-  sqlite.exec('PRAGMA foreign_keys = OFF')
-  sqlite.exec('BEGIN IMMEDIATE')
-  try {
-    sqlite.exec(`
-      CREATE TABLE providers_new (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL CHECK(type IN ('newapi', 'openai-compatible', 'anthropic')),
-        api_format TEXT NOT NULL DEFAULT 'openai' CHECK(api_format IN ('openai', 'claude', 'gemini')),
-        endpoint TEXT NOT NULL,
-        api_key TEXT DEFAULT '',
-        cost_multiplier REAL NOT NULL DEFAULT 1.0,
-        new_api_user_id INTEGER,
-        access_token TEXT,
-        black_group_match TEXT,
-        sync_enabled INTEGER NOT NULL DEFAULT 1,
-        sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
-        last_sync_at TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `)
-    sqlite.exec('INSERT INTO providers_new SELECT * FROM providers')
-    sqlite.exec('DROP TABLE providers')
-    sqlite.exec('ALTER TABLE providers_new RENAME TO providers')
-    sqlite.exec('COMMIT')
-    console.log('[migrate] providers.type CHECK widened successfully')
-  } catch (e) {
-    sqlite.exec('ROLLBACK')
-    console.error('[migrate] Failed to widen providers.type CHECK:', e)
-  }
-  sqlite.exec('PRAGMA foreign_keys = ON')
-}
-
-console.log('Database migrated successfully')
+console.log(`Database ready (schema v${(sqlite.query('PRAGMA user_version').get() as { user_version: number }).user_version})`)
 sqlite.close()
