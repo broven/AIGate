@@ -3,8 +3,8 @@ interface CooldownEntry {
   consecutiveFailures: number
 }
 
-const BASE_COOLDOWN_MS = 30_000 // 30 seconds
-const MAX_COOLDOWN_MS = 15 * 60 * 1000 // 15 minutes
+const BASE_COOLDOWN_MS = 450_000 // 7.5 minutes (level 1 of 6)
+const MAX_COOLDOWN_MS = 4 * 60 * 60 * 1000 // 4 hours (level 6: 7.5min * 2^5)
 
 // Key: deploymentId
 const cooldowns = new Map<string, CooldownEntry>()

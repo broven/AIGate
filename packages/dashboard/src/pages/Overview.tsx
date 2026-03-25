@@ -1,28 +1,35 @@
-import { useCallback, useMemo } from 'react'
-import { getStats, getLogs, getBenchmarks, getModelPreferences, setDeploymentBlacklist, type LogEntry, type BenchmarkData } from '../lib/api'
+import { useCallback, useMemo, useState } from 'react'
+import { getStats, getBenchmarks, getModelPreferences, setDeploymentBlacklist, getCooldowns, resetCooldown, type BenchmarkData, type CooldownEntry } from '../lib/api'
 import { usePolling } from '../hooks/usePolling'
-import { FallbackChain } from '../components/FallbackChain'
 import { BenchmarkChart } from '../components/BenchmarkChart'
 
 function formatCost(n: number): string {
   return `$${n.toFixed(4)}`
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+function formatRemaining(ms: number): string {
+  if (ms <= 0) return '0s'
+  const totalSec = Math.ceil(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
 }
 
 export default function Overview() {
   const fetchStats = useCallback(() => getStats(), [])
-  const fetchLogs = useCallback(() => getLogs({ limit: 20 }), [])
-
   const fetchBenchmarks = useCallback(() => getBenchmarks(), [])
   const fetchPreferences = useCallback(() => getModelPreferences(), [])
+  const fetchCooldowns = useCallback(() => getCooldowns(), [])
+
   const { data: stats, loading: statsLoading } = usePolling(fetchStats, 5000)
-  const { data: logs, loading: logsLoading } = usePolling(fetchLogs, 5000)
   const { data: benchmarks, loading: benchmarksLoading, mutate: mutateBenchmarks } = usePolling(fetchBenchmarks, 60000)
   const { data: preferences } = usePolling(fetchPreferences, 60000)
+  const { data: cooldowns, mutate: mutateCooldowns } = usePolling(fetchCooldowns, 1000)
+
+  const [resetting, setResetting] = useState<Set<string>>(new Set())
 
   const blacklist = useMemo(() => {
     if (!preferences) return new Set<string>()
@@ -30,27 +37,42 @@ export default function Overview() {
   }, [preferences])
 
   const handleBlacklist = useCallback(async (deploymentId: string) => {
-    // Optimistically remove the point from chart data
     mutateBenchmarks((prev: BenchmarkData | null) => {
       if (!prev) return prev
       return { ...prev, points: prev.points.filter(p => p.deploymentId !== deploymentId) }
     })
     try {
       await setDeploymentBlacklist(deploymentId, true)
-      // Refetch to get authoritative server state
       const fresh = await getBenchmarks()
       mutateBenchmarks(() => fresh)
     } catch (err) {
       console.error('[blacklist] Failed to blacklist deployment:', err)
-      // Refetch to restore consistent state
       try {
         const fresh = await getBenchmarks()
         mutateBenchmarks(() => fresh)
       } catch {
-        // If refetch also fails, force a poll on next cycle by leaving stale state
+        // leave stale
       }
     }
   }, [mutateBenchmarks])
+
+  const handleReset = useCallback(async (deploymentId: string) => {
+    setResetting(prev => new Set(prev).add(deploymentId))
+    mutateCooldowns((prev: CooldownEntry[] | null) =>
+      prev ? prev.filter(e => e.deploymentId !== deploymentId) : prev
+    )
+    try {
+      await resetCooldown(deploymentId)
+      const fresh = await getCooldowns()
+      mutateCooldowns(() => fresh)
+    } catch (err) {
+      console.error('[reset cooldown] Failed:', err)
+      const fresh = await getCooldowns()
+      mutateCooldowns(() => fresh)
+    } finally {
+      setResetting(prev => { const s = new Set(prev); s.delete(deploymentId); return s })
+    }
+  }, [mutateCooldowns])
 
   return (
     <div>
@@ -81,44 +103,46 @@ export default function Overview() {
 
       <div className="section">
         <div className="section-header">
-          <h2 className="section-title">Recent Requests</h2>
+          <h2 className="section-title">Active Cooldowns</h2>
         </div>
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Model</th>
-                <th>Provider</th>
-                <th>Tokens</th>
-                <th>Cost</th>
-                <th>Saved</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logsLoading && !logs ? (
+        {!cooldowns || cooldowns.length === 0 ? (
+          <div style={{ padding: '1rem', color: 'var(--text-muted, #888)', fontSize: '0.875rem' }}>
+            No active cooldowns
+          </div>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center' }}>Loading...</td>
+                  <th>Deployment</th>
+                  <th>Failures</th>
+                  <th>Remaining</th>
+                  <th>Action</th>
                 </tr>
-              ) : logs?.data.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: 'center' }}>No requests yet</td>
-                </tr>
-              ) : (
-                logs?.data.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="mono">{formatTime(entry.createdAt)}</td>
-                    <td className="mono">{entry.model}</td>
-                    <td><FallbackChain attempts={entry.attempts} /></td>
-                    <td className="mono">{((entry.inputTokens ?? 0) + (entry.outputTokens ?? 0)).toLocaleString()}</td>
-                    <td className="mono">{formatCost(entry.cost ?? 0)}</td>
-                    <td className="mono delta">{formatCost(entry.savedVsDirect ?? 0)}</td>
+              </thead>
+              <tbody>
+                {cooldowns.map((entry) => (
+                  <tr key={entry.deploymentId}>
+                    <td className="mono">{entry.deploymentId}</td>
+                    <td className="mono">{entry.consecutiveFailures}</td>
+                    <td className="mono" style={{ color: 'var(--warning, #f59e0b)' }}>
+                      {formatRemaining(entry.remainingMs)}
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => handleReset(entry.deploymentId)}
+                        disabled={resetting.has(entry.deploymentId)}
+                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', cursor: 'pointer' }}
+                      >
+                        {resetting.has(entry.deploymentId) ? 'Resetting…' : 'Reset'}
+                      </button>
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

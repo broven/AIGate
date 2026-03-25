@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { sql, eq, desc, and, gte, count } from 'drizzle-orm'
 import { db, schema } from '../db'
-import { getCooldownState } from '../router/cooldown'
+import { getCooldownState, clearCooldown } from '../router/cooldown'
 
 const app = new Hono()
 
@@ -138,6 +138,29 @@ app.get('/logs/:id', async (c) => {
 // GET /api/health
 app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// GET /api/cooldowns — list active cooldowns
+app.get('/cooldowns', (c) => {
+  const state = getCooldownState()
+  const now = Date.now()
+  const result = []
+  for (const [deploymentId, entry] of state) {
+    result.push({
+      deploymentId,
+      until: entry.until,
+      remainingMs: Math.max(0, entry.until - now),
+      consecutiveFailures: entry.consecutiveFailures,
+    })
+  }
+  return c.json(result)
+})
+
+// POST /api/cooldowns/:deploymentId/reset — clear a specific cooldown
+app.post('/cooldowns/:deploymentId/reset', (c) => {
+  const deploymentId = decodeURIComponent(c.req.param('deploymentId'))
+  clearCooldown(deploymentId)
+  return c.json({ ok: true })
 })
 
 export default app
