@@ -12,6 +12,8 @@ export interface ProviderConfig {
   newApiUserId?: number
   accessToken?: string
   blackGroupMatch?: string[]
+  // models.dev fallback slug (e.g. "minimax", "anthropic")
+  modelsDevSlug?: string
   // Sync settings
   syncEnabled: boolean
   syncIntervalMinutes: number

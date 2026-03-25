@@ -10,6 +10,7 @@ export const providers = sqliteTable('providers', {
   costMultiplier: real('cost_multiplier').notNull().default(1.0),
   newApiUserId: integer('new_api_user_id'),
   accessToken: text('access_token'),
+  modelsDevSlug: text('models_dev_slug'),
   blackGroupMatch: text('black_group_match'), // JSON array
   syncEnabled: integer('sync_enabled', { mode: 'boolean' }).notNull().default(true),
   syncIntervalMinutes: integer('sync_interval_minutes').notNull().default(60),

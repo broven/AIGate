@@ -187,6 +187,15 @@ const migrations: Migration[] = [
       db.exec('PRAGMA foreign_keys = ON')
     },
   },
+  {
+    version: 3,
+    description: 'Add models_dev_slug to providers',
+    up(db) {
+      try {
+        db.exec('ALTER TABLE providers ADD COLUMN models_dev_slug TEXT')
+      } catch { /* column already exists */ }
+    },
+  },
 ]
 
 // Run pending migrations

@@ -57,11 +57,18 @@ export interface Provider {
   costMultiplier: number
   newApiUserId: number | null
   accessToken: string | null
+  modelsDevSlug: string | null
   blackGroupMatch: string[]
   syncEnabled: boolean
   syncIntervalMinutes: number
   lastSyncAt: string | null
   createdAt: string
+}
+
+export interface ModelsDevProvider {
+  id: string
+  name: string
+  modelCount: number
 }
 
 export interface ModelDeployment {
@@ -126,6 +133,8 @@ export const syncProvider = (id: string) =>
   request<SyncResult>(`/providers/${id}/sync`, { method: 'POST' })
 export const getSyncHistory = (id: string) =>
   request<Array<Record<string, unknown>>>(`/providers/${id}/sync-history`)
+export const getModelsDevProviders = () =>
+  request<ModelsDevProvider[]>('/providers/models-dev-providers')
 
 // Model Preferences
 export interface ModelPreference {

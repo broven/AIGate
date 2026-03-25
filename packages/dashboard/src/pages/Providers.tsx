@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getProviders, createProvider, updateProvider, deleteProvider, syncProvider, getModels, setDeploymentBlacklist, type Provider, type ModelDeployment } from '../lib/api'
+import { getProviders, createProvider, updateProvider, deleteProvider, syncProvider, getModels, setDeploymentBlacklist, getModelsDevProviders, type Provider, type ModelDeployment, type ModelsDevProvider } from '../lib/api'
 
 interface ProviderForm {
   id: string
@@ -10,6 +10,7 @@ interface ProviderForm {
   costMultiplier: string
   newapiUserId: string
   accessToken: string
+  modelsDevSlug: string
   blackGroupMatch: string
   syncEnabled: boolean
   syncIntervalMinutes: number
@@ -24,6 +25,7 @@ const emptyForm: ProviderForm = {
   costMultiplier: '',
   newapiUserId: '',
   accessToken: '',
+  modelsDevSlug: '',
   blackGroupMatch: '',
   syncEnabled: true,
   syncIntervalMinutes: 60,
@@ -49,6 +51,9 @@ export default function Providers() {
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [togglingBlacklist, setTogglingBlacklist] = useState<Set<string>>(new Set())
+  const [modelsDevProviders, setModelsDevProviders] = useState<ModelsDevProvider[]>([])
+  const [slugSearch, setSlugSearch] = useState('')
+  const [slugDropdownOpen, setSlugDropdownOpen] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -183,9 +188,26 @@ export default function Providers() {
     }
   }
 
+  // Fetch models.dev providers for the slug dropdown when modal opens
+  useEffect(() => {
+    if (modalOpen && form.type !== 'newapi' && modelsDevProviders.length === 0) {
+      getModelsDevProviders().then(setModelsDevProviders).catch(() => {})
+    }
+  }, [modalOpen, form.type])
+
+  const filteredSlugProviders = useMemo(() => {
+    if (!slugSearch) return modelsDevProviders
+    const q = slugSearch.toLowerCase()
+    return modelsDevProviders.filter(
+      (p) => p.id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q),
+    )
+  }, [modelsDevProviders, slugSearch])
+
   function openAdd() {
     setForm(emptyForm)
     setEditingId(null)
+    setSlugSearch('')
+    setSlugDropdownOpen(false)
     setModalOpen(true)
   }
 
@@ -199,11 +221,14 @@ export default function Providers() {
       costMultiplier: String(provider.costMultiplier ?? 1),
       newapiUserId: String(provider.newApiUserId ?? ''),
       accessToken: provider.accessToken ?? '',
+      modelsDevSlug: provider.modelsDevSlug ?? '',
       blackGroupMatch: (provider.blackGroupMatch ?? []).join(', '),
       syncEnabled: provider.syncEnabled ?? true,
       syncIntervalMinutes: provider.syncIntervalMinutes ?? 60,
     })
     setEditingId(provider.id)
+    setSlugSearch('')
+    setSlugDropdownOpen(false)
     setModalOpen(true)
   }
 
@@ -227,6 +252,7 @@ export default function Providers() {
         syncIntervalMinutes: form.syncIntervalMinutes,
       }
       if (form.apiKey) payload.apiKey = form.apiKey
+      if (form.type !== 'newapi') payload.modelsDevSlug = form.modelsDevSlug || null
       if (form.type === 'newapi' && form.newapiUserId) payload.newApiUserId = Number(form.newapiUserId)
       if (form.accessToken) payload.accessToken = form.accessToken
       if (form.blackGroupMatch.trim()) {
@@ -397,6 +423,10 @@ export default function Providers() {
                   if (newType === 'anthropic') {
                     updates.apiFormat = 'claude'
                     if (!form.endpoint) updates.endpoint = 'https://api.anthropic.com'
+                    if (!form.modelsDevSlug) updates.modelsDevSlug = 'anthropic'
+                  }
+                  if (newType === 'newapi') {
+                    updates.modelsDevSlug = ''
                   }
                   setForm((prev) => ({ ...prev, ...updates }))
                 }}>
@@ -439,6 +469,68 @@ export default function Providers() {
                     required={!editingId}
                     autoComplete="off"
                   />
+                </div>
+              )}
+
+              {form.type !== 'newapi' && (
+                <div className="form-group">
+                  <label>
+                    Models.dev Slug
+                    <span className="tip-icon" data-tip="当上游 API 无法自动获取模型列表时，可配置此项从 models.dev 获取模型">ⓘ</span>
+                  </label>
+                  <div className="combobox" onBlur={(e) => {
+                    // Close dropdown when focus leaves the combobox entirely
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setSlugDropdownOpen(false)
+                    }
+                  }}>
+                    <input
+                      type="text"
+                      value={slugDropdownOpen ? slugSearch : form.modelsDevSlug}
+                      onChange={(e) => {
+                        setSlugSearch(e.target.value)
+                        setSlugDropdownOpen(true)
+                        updateField('modelsDevSlug', e.target.value)
+                      }}
+                      onFocus={() => {
+                        setSlugSearch(form.modelsDevSlug)
+                        setSlugDropdownOpen(true)
+                      }}
+                      placeholder="e.g. minimax, anthropic"
+                      autoComplete="off"
+                    />
+                    {form.modelsDevSlug && (
+                      <button
+                        type="button"
+                        className="combobox-clear"
+                        onClick={() => {
+                          updateField('modelsDevSlug', '')
+                          setSlugSearch('')
+                          setSlugDropdownOpen(false)
+                        }}
+                      >×</button>
+                    )}
+                    {slugDropdownOpen && filteredSlugProviders.length > 0 && (
+                      <ul className="combobox-dropdown">
+                        {filteredSlugProviders.slice(0, 20).map((p) => (
+                          <li
+                            key={p.id}
+                            tabIndex={0}
+                            className={p.id === form.modelsDevSlug ? 'selected' : ''}
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              updateField('modelsDevSlug', p.id)
+                              setSlugSearch(p.id)
+                              setSlugDropdownOpen(false)
+                            }}
+                          >
+                            <span className="combobox-item-name">{p.name}</span>
+                            <span className="combobox-item-meta">{p.id} · {p.modelCount} models</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               )}
 

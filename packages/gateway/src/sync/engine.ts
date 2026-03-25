@@ -29,12 +29,14 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
       provider.endpoint,
       provider.apiKey || '',
       provider.costMultiplier,
+      provider.modelsDevSlug ?? undefined,
     )
   } else {
     syncResult = await syncOpenAICompatibleProvider(
       provider.endpoint,
       provider.apiKey || '',
       provider.costMultiplier,
+      provider.modelsDevSlug ?? undefined,
     )
   }
 

@@ -592,6 +592,79 @@ tr:last-child td {
   color: var(--text-primary);
 }
 
+/* Combobox (searchable dropdown) */
+.combobox {
+  position: relative;
+}
+
+.combobox input {
+  width: 100%;
+  padding-right: 28px;
+}
+
+.combobox-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.combobox-clear:hover {
+  color: var(--text-primary);
+}
+
+.combobox-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  z-index: 100;
+}
+
+.combobox-dropdown li {
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.combobox-dropdown li:hover,
+.combobox-dropdown li:focus {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.combobox-dropdown li.selected {
+  background: var(--accent-blue-bg, rgba(56, 132, 255, 0.1));
+}
+
+.combobox-item-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.combobox-item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* Mono text */
 .mono {
   font-family: var(--font-mono);

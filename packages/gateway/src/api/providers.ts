@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { eq, desc } from 'drizzle-orm'
 import { db, schema } from '../db'
 import { nanoid } from '../utils'
+import { getModelsDevProviderList } from '../sync/models-dev'
 
 const app = new Hono()
 
@@ -12,8 +13,15 @@ app.get('/', async (c) => {
     rows.map((r) => ({
       ...r,
       blackGroupMatch: r.blackGroupMatch ? JSON.parse(r.blackGroupMatch) : [],
+      modelsDevSlug: r.modelsDevSlug ?? null,
     })),
   )
+})
+
+// GET /api/providers/models-dev-providers — list models.dev provider slugs for dropdown
+app.get('/models-dev-providers', async (c) => {
+  const list = await getModelsDevProviderList()
+  return c.json(list)
 })
 
 // POST /api/providers
@@ -30,6 +38,7 @@ app.post('/', async (c) => {
     costMultiplier: body.costMultiplier ?? 1.0,
     newApiUserId: body.newApiUserId ?? null,
     accessToken: body.accessToken ?? null,
+    modelsDevSlug: body.modelsDevSlug ?? null,
     blackGroupMatch: body.blackGroupMatch ? JSON.stringify(body.blackGroupMatch) : null,
     syncEnabled: body.syncEnabled ?? true,
     syncIntervalMinutes: body.syncIntervalMinutes ?? 60,
@@ -53,6 +62,7 @@ app.put('/:id', async (c) => {
       costMultiplier: body.costMultiplier ?? 1.0,
       newApiUserId: body.newApiUserId ?? null,
       accessToken: body.accessToken ?? null,
+      modelsDevSlug: body.modelsDevSlug ?? null,
       blackGroupMatch: body.blackGroupMatch ? JSON.stringify(body.blackGroupMatch) : null,
       syncEnabled: body.syncEnabled ?? true,
       syncIntervalMinutes: body.syncIntervalMinutes ?? 60,

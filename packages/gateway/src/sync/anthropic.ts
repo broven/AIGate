@@ -4,7 +4,7 @@
 // 3. If /v1/models fails, fall back to models.dev for both list and pricing
 
 import { canonicalize } from './canonicalize'
-import { getModelsDevPricing, lookupPrice } from './models-dev'
+import { getModelsDevPricing, lookupPrice, getModelsFromModelsDevBySlug } from './models-dev'
 import type { SyncedModel } from './newapi'
 
 interface AnthropicModel {
@@ -55,34 +55,15 @@ async function fetchAnthropicModels(
   return models
 }
 
-function getAnthropicModelsFromModelsDev(
-  pricing: Map<string, { input: number; output: number }>,
-): { id: string; input: number; output: number }[] {
-  const models: { id: string; input: number; output: number }[] = []
-  const seen = new Set<string>()
-
-  for (const [key, price] of pricing) {
-    // Only match models under the 'anthropic/' provider namespace
-    if (!key.startsWith('anthropic/')) continue
-
-    // Extract model ID (strip 'anthropic/' prefix if present)
-    const modelId = key.startsWith('anthropic/') ? key.slice('anthropic/'.length) : key
-    if (seen.has(modelId)) continue
-    seen.add(modelId)
-
-    models.push({ id: modelId, input: price.input, output: price.output })
-  }
-
-  return models
-}
-
 export async function syncAnthropicProvider(
   endpoint: string,
   apiKey: string,
   costMultiplier: number,
+  modelsDevSlug?: string,
 ): Promise<{ models: SyncedModel[]; errors: string[] }> {
   const errors: string[] = []
   const models: SyncedModel[] = []
+  const slug = modelsDevSlug || 'anthropic'
   const modelsDevPricing = await getModelsDevPricing()
 
   let modelIds: string[]
@@ -94,13 +75,13 @@ export async function syncAnthropicProvider(
     console.log(`[sync:anthropic] Fetched ${modelIds.length} models from /v1/models`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    errors.push(`/v1/models failed (${msg}), falling back to models.dev`)
-    console.warn(`[sync:anthropic] /v1/models failed: ${msg}, using models.dev fallback`)
+    errors.push(`/v1/models failed (${msg}), falling back to models.dev [${slug}]`)
+    console.warn(`[sync:anthropic] /v1/models failed: ${msg}, using models.dev fallback [${slug}]`)
 
     // Strategy 2: Fall back to models.dev
-    const devModels = getAnthropicModelsFromModelsDev(modelsDevPricing)
+    const devModels = getModelsFromModelsDevBySlug(modelsDevPricing, slug)
     modelIds = devModels.map((m) => m.id)
-    console.log(`[sync:anthropic] Found ${modelIds.length} Anthropic models from models.dev`)
+    console.log(`[sync:anthropic] Found ${modelIds.length} models from models.dev [${slug}]`)
   }
 
   // Resolve pricing for each model from models.dev
