@@ -207,6 +207,44 @@ export interface BenchmarkData {
 
 export const getBenchmarks = () => request<BenchmarkData>('/benchmarks')
 
+// Virtual Models
+export interface VirtualModel {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+  updatedAt: string
+  entries: VirtualModelEntry[]
+}
+
+export interface VirtualModelEntry {
+  id: string
+  virtualModelId: string
+  canonical: string
+  priority: number
+  createdAt: string
+  disabledDeployments: string[]
+}
+
+export const getVirtualModels = () => request<VirtualModel[]>('/virtual-models')
+
+export const createVirtualModel = (data: {
+  name: string
+  description?: string
+  entries: Array<{ canonical: string; priority: number; disabledDeployments?: string[] }>
+}) =>
+  request<{ id: string }>('/virtual-models', { method: 'POST', body: JSON.stringify(data) })
+
+export const updateVirtualModel = (id: string, data: {
+  name?: string
+  description?: string
+  entries?: Array<{ canonical: string; priority: number; disabledDeployments?: string[] }>
+}) =>
+  request<{ ok: boolean }>(`/virtual-models/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+
+export const deleteVirtualModel = (id: string) =>
+  request<{ ok: boolean }>(`/virtual-models/${id}`, { method: 'DELETE' })
+
 // Health
 export const getHealth = () => request<{ status: string; timestamp: string }>('/health')
 
