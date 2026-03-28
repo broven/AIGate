@@ -285,14 +285,27 @@ app.get('/v1/models', gatewayAuth, async (c) => {
   const models = [...new Set(deployments.map((d) => d.canonical))]
     .filter((c) => !blackSet.has(c))
 
+  const virtualModelRows = await db
+    .select({ name: schema.virtualModels.name })
+    .from(schema.virtualModels)
+  const virtualModelIds = virtualModelRows.map((row) => `virtual:${row.name}`)
+
   return c.json({
     object: 'list',
-    data: models.map((id) => ({
-      id,
-      object: 'model',
-      created: Math.floor(Date.now() / 1000),
-      owned_by: 'aigate',
-    })),
+    data: [
+      ...models.map((id) => ({
+        id,
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'aigate',
+      })),
+      ...virtualModelIds.map((id) => ({
+        id,
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'aigate-virtual',
+      })),
+    ],
   })
 })
 
