@@ -103,3 +103,29 @@ export const modelPreferences = sqliteTable('model_preferences', {
   preference: text('preference', { enum: ['favorite', 'blacklist'] }).notNull(),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 })
+
+export const virtualModels = sqliteTable('virtual_models', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  description: text('description').default(''),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const virtualModelEntries = sqliteTable('virtual_model_entries', {
+  id: text('id').primaryKey(),
+  virtualModelId: text('virtual_model_id').notNull().references(() => virtualModels.id, { onDelete: 'cascade' }),
+  canonical: text('canonical').notNull(),
+  priority: integer('priority').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_vm_entries_vm_id').on(table.virtualModelId),
+])
+
+export const virtualModelDeploymentOverrides = sqliteTable('virtual_model_deployment_overrides', {
+  virtualModelId: text('virtual_model_id').notNull().references(() => virtualModels.id, { onDelete: 'cascade' }),
+  deploymentId: text('deployment_id').notNull().references(() => modelDeployments.deploymentId, { onDelete: 'cascade' }),
+  disabled: integer('disabled', { mode: 'boolean' }).notNull().default(true),
+}, (table) => [
+  primaryKey({ columns: [table.virtualModelId, table.deploymentId] }),
+])
