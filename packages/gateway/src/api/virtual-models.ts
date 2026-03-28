@@ -49,7 +49,7 @@ app.post('/', async (c) => {
 
   await db.insert(schema.virtualModels).values({
     id,
-    name: body.name.trim(),
+    name: body.name.trim().toLowerCase(),
     description: body.description?.trim() || '',
     createdAt: now,
     updatedAt: now,
@@ -95,10 +95,18 @@ app.put('/:id', async (c) => {
     return c.json({ error: { message: 'virtual model not found' } }, 404)
   }
 
+  if (body.name !== undefined && !body.name.trim()) {
+    return c.json({ error: { message: 'name cannot be empty' } }, 400)
+  }
+
+  if (body.entries && body.entries.length === 0) {
+    return c.json({ error: { message: 'at least one entry is required' } }, 400)
+  }
+
   const now = new Date().toISOString()
 
   await db.update(schema.virtualModels).set({
-    ...(body.name !== undefined ? { name: body.name.trim() } : {}),
+    ...(body.name !== undefined ? { name: body.name.trim().toLowerCase() } : {}),
     ...(body.description !== undefined ? { description: body.description.trim() } : {}),
     updatedAt: now,
   }).where(eq(schema.virtualModels.id, id))
