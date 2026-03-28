@@ -3,6 +3,7 @@ import AuthGuard from './components/AuthGuard'
 import Overview from './pages/Overview'
 import Providers from './pages/Providers'
 import Models from './pages/Models'
+import VirtualModels from './pages/VirtualModels'
 import Logs from './pages/Logs'
 import ApiKeys from './pages/ApiKeys'
 import Settings from './pages/Settings'
@@ -37,6 +38,15 @@ function Sidebar() {
             <line x1="12" y1="22.08" x2="12" y2="12" />
           </svg>
           Models
+        </NavLink>
+        <NavLink to="/virtual-models" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M16 3h5v5" />
+            <path d="M8 3H3v5" />
+            <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" />
+            <path d="m15 9 6-6" />
+          </svg>
+          Virtual Models
         </NavLink>
         <NavLink to="/logs" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -75,6 +85,7 @@ export default function App() {
             <Route path="/" element={<Overview />} />
             <Route path="/providers" element={<Providers />} />
             <Route path="/models" element={<Models />} />
+            <Route path="/virtual-models" element={<VirtualModels />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/keys" element={<ApiKeys />} />
             <Route path="/settings" element={<Settings />} />
