@@ -43,8 +43,12 @@ function parseMessage(msg: OpenAIMessage): UniversalMessage {
     })
   }
 
+  // Map OpenAI-specific roles to universal roles (e.g. "developer" → "system")
+  const roleMap: Record<string, UniversalMessage['role']> = { developer: 'system' }
+  const role = roleMap[msg.role] ?? (msg.role as UniversalMessage['role'])
+
   const universal: UniversalMessage = {
-    role: msg.role as UniversalMessage['role'],
+    role,
     content,
   }
 

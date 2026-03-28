@@ -52,21 +52,25 @@ app.put('/:id', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.json()
 
+  const updates: Record<string, unknown> = {
+    type: body.type,
+    apiFormat: body.apiFormat ?? 'openai',
+    endpoint: body.endpoint.replace(/\/$/, ''),
+    costMultiplier: body.costMultiplier ?? 1.0,
+    newApiUserId: body.newApiUserId ?? null,
+    modelsDevSlug: body.modelsDevSlug ?? null,
+    blackGroupMatch: body.blackGroupMatch ? JSON.stringify(body.blackGroupMatch) : null,
+    syncEnabled: body.syncEnabled ?? true,
+    syncIntervalMinutes: body.syncIntervalMinutes ?? 60,
+  }
+
+  // Only update secrets if explicitly provided (frontend omits them to keep current values)
+  if ('apiKey' in body) updates.apiKey = body.apiKey || ''
+  if ('accessToken' in body) updates.accessToken = body.accessToken ?? null
+
   await db
     .update(schema.providers)
-    .set({
-      type: body.type,
-      apiFormat: body.apiFormat ?? 'openai',
-      endpoint: body.endpoint.replace(/\/$/, ''),
-      apiKey: body.apiKey || '',
-      costMultiplier: body.costMultiplier ?? 1.0,
-      newApiUserId: body.newApiUserId ?? null,
-      accessToken: body.accessToken ?? null,
-      modelsDevSlug: body.modelsDevSlug ?? null,
-      blackGroupMatch: body.blackGroupMatch ? JSON.stringify(body.blackGroupMatch) : null,
-      syncEnabled: body.syncEnabled ?? true,
-      syncIntervalMinutes: body.syncIntervalMinutes ?? 60,
-    })
+    .set(updates)
     .where(eq(schema.providers.id, id))
 
   return c.json({ ok: true })

@@ -184,7 +184,10 @@ function LogRow({ log, expanded, onToggle }: { log: LogEntry; expanded: boolean;
     <>
       <tr onClick={() => onToggle(log.id)} style={{ cursor: 'pointer' }}>
         <td className="mono">{formatTime(log.createdAt)}</td>
-        <td className="mono">{log.model}</td>
+        <td className="mono">
+          {log.model.startsWith('virtual:') ? log.model.slice(8) : log.model}
+          {log.model.startsWith('virtual:') && <span className="badge blue" style={{ marginLeft: '6px', fontSize: '11px' }}>Virtual</span>}
+        </td>
         <td className="mono">{log.gatewayKey}</td>
         <td>
           <FallbackChain attempts={log.attempts} />
