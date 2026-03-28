@@ -196,6 +196,42 @@ const migrations: Migration[] = [
       } catch { /* column already exists */ }
     },
   },
+  {
+    version: 4,
+    description: 'Add virtual models tables and requestLogs.virtual_model_name',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS virtual_models (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          description TEXT DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS virtual_model_entries (
+          id TEXT PRIMARY KEY,
+          virtual_model_id TEXT NOT NULL REFERENCES virtual_models(id) ON DELETE CASCADE,
+          canonical TEXT NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_vm_entries_vm_id ON virtual_model_entries(virtual_model_id);
+
+        CREATE TABLE IF NOT EXISTS virtual_model_deployment_overrides (
+          virtual_model_id TEXT NOT NULL REFERENCES virtual_models(id) ON DELETE CASCADE,
+          deployment_id TEXT NOT NULL REFERENCES model_deployments(deployment_id) ON DELETE CASCADE,
+          disabled INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (virtual_model_id, deployment_id)
+        );
+      `)
+
+      try {
+        db.exec('ALTER TABLE request_logs ADD COLUMN virtual_model_name TEXT')
+      } catch { /* column already exists */ }
+    },
+  },
 ]
 
 // Run pending migrations

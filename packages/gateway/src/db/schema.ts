@@ -71,6 +71,7 @@ export const requestLogs = sqliteTable('request_logs', {
   cost: real('cost'),
   savedVsDirect: real('saved_vs_direct'),
   success: integer('success', { mode: 'boolean' }).notNull().default(true),
+  virtualModelName: text('virtual_model_name'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_logs_created_at').on(table.createdAt),
