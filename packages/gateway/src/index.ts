@@ -125,7 +125,7 @@ async function handleLLMRequest(
       gatewayKey: gatewayKeyName,
       sourceFormat: handler.sourceFormat,
       routeResult,
-      virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
+      virtualModelName: routeResult.virtualModelName,
     })
 
     return c.json(
@@ -177,7 +177,7 @@ async function handleLLMRequest(
         gatewayKey: gatewayKeyName,
         sourceFormat: handler.sourceFormat,
         routeResult,
-        virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
+        virtualModelName: routeResult.virtualModelName,
         response: streamUsage ? {
           id: '',
           model: universalReq.model,
@@ -194,7 +194,7 @@ async function handleLLMRequest(
         gatewayKey: gatewayKeyName,
         sourceFormat: handler.sourceFormat,
         routeResult,
-        virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
+        virtualModelName: routeResult.virtualModelName,
       })
     })
 
@@ -218,7 +218,7 @@ async function handleLLMRequest(
     sourceFormat: handler.sourceFormat,
     routeResult,
     response,
-    virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
+    virtualModelName: routeResult.virtualModelName,
   })
 
   return c.json(handler.formatResponse(response))
@@ -292,18 +292,21 @@ app.get('/v1/models', gatewayAuth, async (c) => {
   const virtualModelRows = await db
     .select({ name: schema.virtualModels.name })
     .from(schema.virtualModels)
-  const virtualModelIds = virtualModelRows.map((row) => `virtual:${row.name}`)
+  const virtualModelNames = new Set(virtualModelRows.map((row) => row.name))
+
+  // Virtual models shadow regular models with the same name
+  const regularModels = models.filter((m) => !virtualModelNames.has(m))
 
   return c.json({
     object: 'list',
     data: [
-      ...models.map((id) => ({
+      ...regularModels.map((id) => ({
         id,
         object: 'model',
         created: Math.floor(Date.now() / 1000),
         owned_by: 'aigate',
       })),
-      ...virtualModelIds.map((id) => ({
+      ...[...virtualModelNames].map((id) => ({
         id,
         object: 'model',
         created: Math.floor(Date.now() / 1000),

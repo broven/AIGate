@@ -54,10 +54,18 @@ beforeAll(async () => {
 
   await db.insert(schema.modelDeployments).values([
     {
-      deploymentId: 'dep-disabled',
+      deploymentId: 'dep-gpt4o',
       providerId: 'provider-1',
       canonical: 'gpt-4o',
       upstream: 'gpt-4o',
+      priceInput: 5,
+      priceOutput: 5,
+    },
+    {
+      deploymentId: 'dep-disabled',
+      providerId: 'provider-1',
+      canonical: 'gpt-4o',
+      upstream: 'gpt-4o-backup',
       priceInput: 1,
       priceOutput: 1,
     },
@@ -69,12 +77,30 @@ beforeAll(async () => {
       priceInput: 2,
       priceOutput: 2,
     },
+    {
+      deploymentId: 'dep-merge-a',
+      providerId: 'provider-1',
+      canonical: 'claude-haiku-4-5',
+      upstream: 'claude-haiku-4-5',
+      priceInput: 10,
+      priceOutput: 10,
+    },
+    {
+      deploymentId: 'dep-merge-b',
+      providerId: 'provider-1',
+      canonical: 'claude-haiku-4-5-20250301',
+      upstream: 'claude-haiku-4-5-20250301',
+      priceInput: 3,
+      priceOutput: 3,
+    },
   ])
 
+  // Fallback virtual model
   await db.insert(schema.virtualModels).values({
     id: 'vm-1',
     name: 'chain',
     description: 'fallback chain',
+    mode: 'fallback',
   })
 
   await db.insert(schema.virtualModelEntries).values([
@@ -97,6 +123,29 @@ beforeAll(async () => {
     deploymentId: 'dep-disabled',
     disabled: true,
   })
+
+  // Merge virtual model
+  await db.insert(schema.virtualModels).values({
+    id: 'vm-merge',
+    name: 'claude-haiku',
+    description: 'merge haiku variants',
+    mode: 'merge',
+  })
+
+  await db.insert(schema.virtualModelEntries).values([
+    {
+      id: 'vm-merge-entry-1',
+      virtualModelId: 'vm-merge',
+      canonical: 'claude-haiku-4-5',
+      priority: 0,
+    },
+    {
+      id: 'vm-merge-entry-2',
+      virtualModelId: 'vm-merge',
+      canonical: 'claude-haiku-4-5-20250301',
+      priority: 1,
+    },
+  ])
 })
 
 afterAll(() => {
@@ -105,7 +154,7 @@ afterAll(() => {
 })
 
 describe('virtual model routing and exposure', () => {
-  test('exposes virtual models from /v1/models', async () => {
+  test('exposes virtual models by plain name from /v1/models', async () => {
     const res = await app.fetch(new Request('http://localhost/v1/models', {
       headers: { Authorization: 'Bearer test-api-key' },
     }))
@@ -116,10 +165,47 @@ describe('virtual model routing and exposure', () => {
 
     expect(ids).toContain('gpt-4o')
     expect(ids).toContain('claude-3-7-sonnet')
-    expect(ids).toContain('virtual:chain')
+    expect(ids).toContain('chain')
+    expect(ids).toContain('claude-haiku')
+    // Should NOT have virtual: prefix
+    expect(ids).not.toContain('virtual:chain')
+    expect(ids).not.toContain('virtual:claude-haiku')
   })
 
-  test('routes virtual model requests through the fallback chain and logs the virtual model name', async () => {
+  test('routes fallback virtual model by plain name and logs virtualModelName', async () => {
+    upstreamCalls.length = 0
+    await db.delete(schema.requestLogs)
+
+    const res = await app.fetch(new Request('http://localhost/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test-api-key',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'chain',
+        messages: [{ role: 'user', content: 'Hello' }],
+      }),
+    }))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.choices[0].message.content).toBe('hello from upstream')
+
+    // dep-disabled is disabled, dep-gpt4o should be used
+    expect(upstreamCalls).toHaveLength(1)
+    expect(upstreamCalls[0]?.body.model).toBe('gpt-4o')
+
+    const logs = await db.select().from(schema.requestLogs)
+    expect(logs).toHaveLength(1)
+    expect(logs[0].model).toBe('chain')
+    expect(logs[0].virtualModelName).toBe('chain')
+  })
+
+  test('virtual model shadows regular model with same canonical', async () => {
+    // 'gpt-4o' exists as both a regular model and as an entry in virtual model 'chain'
+    // But 'chain' is the virtual model name, not 'gpt-4o'
+    // A request for 'gpt-4o' should go through regular routing (no virtual model named 'gpt-4o')
     upstreamCalls.length = 0
 
     const res = await app.fetch(new Request('http://localhost/v1/chat/completions', {
@@ -129,7 +215,30 @@ describe('virtual model routing and exposure', () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'virtual:chain',
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'Hello' }],
+      }),
+    }))
+
+    expect(res.status).toBe(200)
+    // Regular routing uses both gpt-4o deployments (dep-gpt4o and dep-disabled)
+    // dep-disabled has lower price (1), should be tried first
+    expect(upstreamCalls).toHaveLength(1)
+    expect(upstreamCalls[0]?.body.model).toBe('gpt-4o-backup')
+  })
+
+  test('merge mode pools deployments across entries and routes by cheapest price', async () => {
+    upstreamCalls.length = 0
+    await db.delete(schema.requestLogs)
+
+    const res = await app.fetch(new Request('http://localhost/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test-api-key',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku',
         messages: [{ role: 'user', content: 'Hello' }],
       }),
     }))
@@ -138,12 +247,14 @@ describe('virtual model routing and exposure', () => {
     const body = await res.json()
     expect(body.choices[0].message.content).toBe('hello from upstream')
 
+    // Merge mode: pools dep-merge-a (price 10) and dep-merge-b (price 3)
+    // Should pick dep-merge-b (cheapest)
     expect(upstreamCalls).toHaveLength(1)
-    expect(upstreamCalls[0]?.body.model).toBe('claude-3-7-sonnet')
+    expect(upstreamCalls[0]?.body.model).toBe('claude-haiku-4-5-20250301')
 
     const logs = await db.select().from(schema.requestLogs)
     expect(logs).toHaveLength(1)
-    expect(logs[0].model).toBe('virtual:chain')
-    expect(logs[0].virtualModelName).toBe('chain')
+    expect(logs[0].model).toBe('claude-haiku')
+    expect(logs[0].virtualModelName).toBe('claude-haiku')
   })
 })

@@ -212,6 +212,7 @@ export interface VirtualModel {
   id: string
   name: string
   description: string
+  mode: 'fallback' | 'merge'
   createdAt: string
   updatedAt: string
   entries: VirtualModelEntry[]
@@ -231,6 +232,7 @@ export const getVirtualModels = () => request<VirtualModel[]>('/virtual-models')
 export const createVirtualModel = (data: {
   name: string
   description?: string
+  mode?: 'fallback' | 'merge'
   entries: Array<{ canonical: string; priority: number; disabledDeployments?: string[] }>
 }) =>
   request<{ id: string }>('/virtual-models', { method: 'POST', body: JSON.stringify(data) })
@@ -238,6 +240,7 @@ export const createVirtualModel = (data: {
 export const updateVirtualModel = (id: string, data: {
   name?: string
   description?: string
+  mode?: 'fallback' | 'merge'
   entries?: Array<{ canonical: string; priority: number; disabledDeployments?: string[] }>
 }) =>
   request<{ ok: boolean }>(`/virtual-models/${id}`, { method: 'PUT', body: JSON.stringify(data) })

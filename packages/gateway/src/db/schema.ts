@@ -109,6 +109,7 @@ export const virtualModels = sqliteTable('virtual_models', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
   description: text('description').default(''),
+  mode: text('mode').notNull().default('fallback'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 })

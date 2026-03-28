@@ -35,6 +35,7 @@ app.post('/', async (c) => {
   const body = await c.req.json<{
     name: string
     description?: string
+    mode?: 'fallback' | 'merge'
     entries: Array<{
       canonical: string
       priority: number
@@ -57,6 +58,7 @@ app.post('/', async (c) => {
     id,
     name: body.name.trim().toLowerCase(),
     description: body.description?.trim() || '',
+    mode: body.mode || 'fallback',
     createdAt: now,
     updatedAt: now,
   })
@@ -89,6 +91,7 @@ app.put('/:id', async (c) => {
   const body = await c.req.json<{
     name?: string
     description?: string
+    mode?: 'fallback' | 'merge'
     entries?: Array<{
       canonical: string
       priority: number
@@ -114,6 +117,7 @@ app.put('/:id', async (c) => {
   await db.update(schema.virtualModels).set({
     ...(body.name !== undefined ? { name: body.name.trim().toLowerCase() } : {}),
     ...(body.description !== undefined ? { description: body.description.trim() } : {}),
+    ...(body.mode !== undefined ? { mode: body.mode } : {}),
     updatedAt: now,
   }).where(eq(schema.virtualModels.id, id))
 

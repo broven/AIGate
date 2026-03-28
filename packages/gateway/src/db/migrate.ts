@@ -232,6 +232,15 @@ const migrations: Migration[] = [
       } catch { /* column already exists */ }
     },
   },
+  {
+    version: 5,
+    description: 'Add mode column to virtual_models',
+    up(db) {
+      try {
+        db.exec("ALTER TABLE virtual_models ADD COLUMN mode TEXT NOT NULL DEFAULT 'fallback'")
+      } catch { /* column already exists */ }
+    },
+  },
 ]
 
 // Run pending migrations

@@ -111,13 +111,17 @@ export interface RouteResult {
   finalProvider: string | null
   totalLatencyMs: number
   allPricePairs: { priceInput: number; priceOutput: number }[]
+  virtualModelName?: string
 }
 
-async function resolveVirtualModel(name: string): Promise<Array<{
-  canonical: string
-  priority: number
-  disabledDeploymentIds: Set<string>
-}> | null> {
+async function resolveVirtualModel(name: string): Promise<{
+  mode: string
+  entries: Array<{
+    canonical: string
+    priority: number
+    disabledDeploymentIds: Set<string>
+  }>
+} | null> {
   const vms = await db
     .select()
     .from(schema.virtualModels)
@@ -147,111 +151,132 @@ async function resolveVirtualModel(name: string): Promise<Array<{
 
   const disabled = disabledByVmId.get(vm.id) ?? new Set<string>()
 
-  return entries
-    .sort((a, b) => a.priority - b.priority)
-    .map((entry) => ({
-      canonical: entry.canonical,
-      priority: entry.priority,
-      disabledDeploymentIds: disabled,
-    }))
+  return {
+    mode: vm.mode,
+    entries: entries
+      .sort((a, b) => a.priority - b.priority)
+      .map((entry) => ({
+        canonical: entry.canonical,
+        priority: entry.priority,
+        disabledDeploymentIds: disabled,
+      })),
+  }
 }
 
 export async function routeRequest(req: UniversalRequest): Promise<RouteResult> {
   const startTime = Date.now()
-  const attempts: RouteAttempt[] = []
 
-  const VIRTUAL_PREFIX = 'virtual:'
-  if (req.model.startsWith(VIRTUAL_PREFIX)) {
-    const vmName = req.model.slice(VIRTUAL_PREFIX.length)
-    const entries = await resolveVirtualModel(vmName)
+  // Virtual models have priority over regular models
+  const vm = await resolveVirtualModel(req.model)
 
-    if (!entries || entries.length === 0) {
-      return {
-        attempts: [],
-        finalProvider: null,
-        totalLatencyMs: Date.now() - startTime,
-        allPricePairs: [],
-      }
+  if (vm && vm.entries.length > 0) {
+    if (vm.mode === 'merge') {
+      return routeMerge(req, vm.entries, startTime)
+    }
+    return routeFallback(req, vm.entries, startTime)
+  }
+
+  // Regular model routing
+  return routeRegular(req, startTime)
+}
+
+async function routeFallback(
+  req: UniversalRequest,
+  entries: Array<{ canonical: string; priority: number; disabledDeploymentIds: Set<string> }>,
+  startTime: number,
+): Promise<RouteResult> {
+  const allAttempts: RouteAttempt[] = []
+  const allPrices: { priceInput: number; priceOutput: number }[] = []
+
+  for (const entry of entries) {
+    const deployments = (await getDeploymentsForModel(entry.canonical))
+      .filter((deployment) => !entry.disabledDeploymentIds.has(deployment.deploymentId))
+
+    if (deployments.length === 0) continue
+
+    allPrices.push(...deployments
+      .filter((deployment) => deployment.priceInput < Infinity && deployment.priceOutput < Infinity)
+      .map((deployment) => ({ priceInput: deployment.priceInput, priceOutput: deployment.priceOutput })))
+
+    const sorted = [...deployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
+    const available = sorted.filter((deployment) => !isInCooldown(deployment.deploymentId))
+    const cooledDown = sorted.filter((deployment) => isInCooldown(deployment.deploymentId))
+
+    for (const deployment of cooledDown) {
+      allAttempts.push({
+        provider: deployment.providerId,
+        deploymentId: deployment.deploymentId,
+        groupName: deployment.groupName,
+        price: deployment.effectivePrice,
+        priceInput: deployment.priceInput,
+        priceOutput: deployment.priceOutput,
+        status: 'skipped_cooldown',
+      })
     }
 
-    const allAttempts: RouteAttempt[] = []
-    const allPrices: { priceInput: number; priceOutput: number }[] = []
+    for (const deployment of available) {
+      const result = await tryDeployment(req, deployment)
+      allAttempts.push(result.attempt)
 
-    for (const entry of entries) {
-      const deployments = (await getDeploymentsForModel(entry.canonical))
-        .filter((deployment) => !entry.disabledDeploymentIds.has(deployment.deploymentId))
-
-      if (deployments.length === 0) continue
-
-      allPrices.push(...deployments
-        .filter((deployment) => deployment.priceInput < Infinity && deployment.priceOutput < Infinity)
-        .map((deployment) => ({ priceInput: deployment.priceInput, priceOutput: deployment.priceOutput })))
-
-      const sorted = [...deployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
-      const available = sorted.filter((deployment) => !isInCooldown(deployment.deploymentId))
-      const cooledDown = sorted.filter((deployment) => isInCooldown(deployment.deploymentId))
-
-      for (const deployment of cooledDown) {
-        allAttempts.push({
-          provider: deployment.providerId,
-          deploymentId: deployment.deploymentId,
-          groupName: deployment.groupName,
-          price: deployment.effectivePrice,
-          priceInput: deployment.priceInput,
-          priceOutput: deployment.priceOutput,
-          status: 'skipped_cooldown',
-        })
-      }
-
-      for (const deployment of available) {
-        const result = await tryDeployment(req, deployment)
-        allAttempts.push(result.attempt)
-
-        if (result.attempt.status === 'success') {
-          return {
-            response: result.response,
-            streamResponse: result.streamResponse,
-            upstreamFormat: deployment.apiFormat,
-            attempts: allAttempts,
-            finalProvider: deployment.providerId,
-            totalLatencyMs: Date.now() - startTime,
-            allPricePairs: allPrices,
-          }
-        }
-      }
-
-      for (const deployment of cooledDown) {
-        liftCooldown(deployment.deploymentId)
-        const result = await tryDeployment(req, deployment)
-        const idx = allAttempts.findIndex(
-          (attempt) => attempt.deploymentId === deployment.deploymentId && attempt.status === 'skipped_cooldown',
-        )
-        if (idx != -1) allAttempts[idx] = result.attempt
-        else allAttempts.push(result.attempt)
-
-        if (result.attempt.status === 'success') {
-          return {
-            response: result.response,
-            streamResponse: result.streamResponse,
-            upstreamFormat: deployment.apiFormat,
-            attempts: allAttempts,
-            finalProvider: deployment.providerId,
-            totalLatencyMs: Date.now() - startTime,
-            allPricePairs: allPrices,
-          }
+      if (result.attempt.status === 'success') {
+        return {
+          response: result.response,
+          streamResponse: result.streamResponse,
+          upstreamFormat: deployment.apiFormat,
+          attempts: allAttempts,
+          finalProvider: deployment.providerId,
+          totalLatencyMs: Date.now() - startTime,
+          allPricePairs: allPrices,
+          virtualModelName: req.model,
         }
       }
     }
 
-    return {
-      attempts: allAttempts,
-      finalProvider: null,
-      totalLatencyMs: Date.now() - startTime,
-      allPricePairs: allPrices,
+    for (const deployment of cooledDown) {
+      liftCooldown(deployment.deploymentId)
+      const result = await tryDeployment(req, deployment)
+      const idx = allAttempts.findIndex(
+        (attempt) => attempt.deploymentId === deployment.deploymentId && attempt.status === 'skipped_cooldown',
+      )
+      if (idx != -1) allAttempts[idx] = result.attempt
+      else allAttempts.push(result.attempt)
+
+      if (result.attempt.status === 'success') {
+        return {
+          response: result.response,
+          streamResponse: result.streamResponse,
+          upstreamFormat: deployment.apiFormat,
+          attempts: allAttempts,
+          finalProvider: deployment.providerId,
+          totalLatencyMs: Date.now() - startTime,
+          allPricePairs: allPrices,
+          virtualModelName: req.model,
+        }
+      }
     }
   }
 
-  const allDeployments = await getDeploymentsForModel(req.model)
+  return {
+    attempts: allAttempts,
+    finalProvider: null,
+    totalLatencyMs: Date.now() - startTime,
+    allPricePairs: allPrices,
+    virtualModelName: req.model,
+  }
+}
+
+async function routeMerge(
+  req: UniversalRequest,
+  entries: Array<{ canonical: string; priority: number; disabledDeploymentIds: Set<string> }>,
+  startTime: number,
+): Promise<RouteResult> {
+  // Pool all deployments from all entries together
+  const allDeployments: Deployment[] = []
+  for (const entry of entries) {
+    const deployments = (await getDeploymentsForModel(entry.canonical))
+      .filter((deployment) => !entry.disabledDeploymentIds.has(deployment.deploymentId))
+    allDeployments.push(...deployments)
+  }
 
   if (allDeployments.length === 0) {
     return {
@@ -259,23 +284,20 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
       finalProvider: null,
       totalLatencyMs: Date.now() - startTime,
       allPricePairs: [],
+      virtualModelName: req.model,
     }
   }
 
-  // Collect all finite price pairs so the logger can compute true worst-case
-  // cost at logging time using actual token counts (avoids paired-rate skew).
+  // Route by price across all deployments, same as regular routing
+  const attempts: RouteAttempt[] = []
   const allPricePairs = allDeployments
     .filter((d) => d.priceInput < Infinity && d.priceOutput < Infinity)
     .map((d) => ({ priceInput: d.priceInput, priceOutput: d.priceOutput }))
 
-  // Sort by price
   const sorted = [...allDeployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
-
-  // Phase 1: Try non-cooldown deployments
   const available = sorted.filter((d) => !isInCooldown(d.deploymentId))
   const cooledDown = sorted.filter((d) => isInCooldown(d.deploymentId))
 
-  // Log skipped deployments
   for (const d of cooledDown) {
     attempts.push({
       provider: d.providerId,
@@ -290,7 +312,98 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
 
   const failedDeployments = new Set<string>()
 
-  // Try available deployments
+  for (const deployment of available) {
+    const result = await tryDeployment(req, deployment)
+    attempts.push(result.attempt)
+
+    if (result.attempt.status === 'success') {
+      return {
+        response: result.response,
+        streamResponse: result.streamResponse,
+        upstreamFormat: deployment.apiFormat,
+        attempts,
+        finalProvider: deployment.providerId,
+        totalLatencyMs: Date.now() - startTime,
+        allPricePairs,
+        virtualModelName: req.model,
+      }
+    }
+    failedDeployments.add(deployment.deploymentId)
+  }
+
+  for (const deployment of cooledDown) {
+    if (failedDeployments.has(deployment.deploymentId)) continue
+    liftCooldown(deployment.deploymentId)
+
+    const result = await tryDeployment(req, deployment)
+    const idx = attempts.findIndex(
+      (a) => a.deploymentId === deployment.deploymentId && a.status === 'skipped_cooldown',
+    )
+    if (idx !== -1) {
+      attempts[idx] = result.attempt
+    } else {
+      attempts.push(result.attempt)
+    }
+
+    if (result.attempt.status === 'success') {
+      return {
+        response: result.response,
+        streamResponse: result.streamResponse,
+        upstreamFormat: deployment.apiFormat,
+        attempts,
+        finalProvider: deployment.providerId,
+        totalLatencyMs: Date.now() - startTime,
+        allPricePairs,
+        virtualModelName: req.model,
+      }
+    }
+  }
+
+  return {
+    attempts,
+    finalProvider: null,
+    totalLatencyMs: Date.now() - startTime,
+    allPricePairs,
+    virtualModelName: req.model,
+  }
+}
+
+async function routeRegular(req: UniversalRequest, startTime: number): Promise<RouteResult> {
+  const attempts: RouteAttempt[] = []
+  const allDeployments = await getDeploymentsForModel(req.model)
+
+  if (allDeployments.length === 0) {
+    return {
+      attempts: [],
+      finalProvider: null,
+      totalLatencyMs: Date.now() - startTime,
+      allPricePairs: [],
+    }
+  }
+
+  const allPricePairs = allDeployments
+    .filter((d) => d.priceInput < Infinity && d.priceOutput < Infinity)
+    .map((d) => ({ priceInput: d.priceInput, priceOutput: d.priceOutput }))
+
+  const sorted = [...allDeployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
+
+  const available = sorted.filter((d) => !isInCooldown(d.deploymentId))
+  const cooledDown = sorted.filter((d) => isInCooldown(d.deploymentId))
+
+  for (const d of cooledDown) {
+    attempts.push({
+      provider: d.providerId,
+      deploymentId: d.deploymentId,
+      groupName: d.groupName,
+      price: d.effectivePrice,
+      priceInput: d.priceInput,
+      priceOutput: d.priceOutput,
+      status: 'skipped_cooldown',
+    })
+  }
+
+  const failedDeployments = new Set<string>()
+
   for (const deployment of available) {
     const result = await tryDeployment(req, deployment)
     attempts.push(result.attempt)
@@ -309,13 +422,11 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
     failedDeployments.add(deployment.deploymentId)
   }
 
-  // Phase 2: Lift prior cooldowns and retry previously-excluded deployments
   for (const deployment of cooledDown) {
     if (failedDeployments.has(deployment.deploymentId)) continue
     liftCooldown(deployment.deploymentId)
 
     const result = await tryDeployment(req, deployment)
-    // Replace the skipped_cooldown entry
     const idx = attempts.findIndex(
       (a) => a.deploymentId === deployment.deploymentId && a.status === 'skipped_cooldown',
     )
@@ -338,7 +449,6 @@ export async function routeRequest(req: UniversalRequest): Promise<RouteResult> 
     }
   }
 
-  // All failed
   return {
     attempts,
     finalProvider: null,

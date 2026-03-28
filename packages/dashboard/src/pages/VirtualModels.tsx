@@ -63,6 +63,7 @@ export default function VirtualModels() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editMode, setEditMode] = useState<'fallback' | 'merge'>('fallback')
   const [editEntries, setEditEntries] = useState<EntryDraft[]>([])
   const [expandedEntries, setExpandedEntries] = useState<Set<number>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -73,6 +74,7 @@ export default function VirtualModels() {
     setEditingId('new')
     setEditName('')
     setEditDescription('')
+    setEditMode('fallback')
     setEditEntries([])
     setExpandedEntries(new Set())
     setSaveError(null)
@@ -82,6 +84,7 @@ export default function VirtualModels() {
     setEditingId(virtualModel.id)
     setEditName(virtualModel.name)
     setEditDescription(virtualModel.description)
+    setEditMode(virtualModel.mode || 'fallback')
     setEditEntries(
       virtualModel.entries.map((entry) => {
         const validIds = new Set(
@@ -165,6 +168,7 @@ export default function VirtualModels() {
     const payload = {
       name: editName.trim(),
       description: editDescription.trim(),
+      mode: editMode,
       entries: editEntries.map((entry, index) => ({
         canonical: entry.canonical,
         priority: index,
@@ -271,7 +275,7 @@ export default function VirtualModels() {
                 }}
               />
               <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                Clients use: <code>virtual:{editName || 'name'}</code>
+                Clients use: <code>{editName || 'name'}</code>
               </span>
             </div>
             <div style={{ flex: 1 }}>
@@ -295,8 +299,44 @@ export default function VirtualModels() {
             </div>
           </div>
 
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button
+              onClick={() => setEditMode('fallback')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: editMode === 'fallback' ? 'var(--accent-blue)' : 'var(--bg-primary)',
+                color: editMode === 'fallback' ? '#fff' : 'var(--text-secondary)',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              Fallback
+            </button>
+            <button
+              onClick={() => setEditMode('merge')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: editMode === 'merge' ? 'var(--accent-blue)' : 'var(--bg-primary)',
+                color: editMode === 'merge' ? '#fff' : 'var(--text-secondary)',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              Merge
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>
+              {editMode === 'fallback'
+                ? 'Try each model in priority order'
+                : 'Pool all deployments, route by cheapest price'}
+            </span>
+          </div>
+
           <label style={{ display: 'block', marginBottom: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-            Model Chain (tried in order, top to bottom)
+            {editMode === 'fallback' ? 'Model Chain (tried in order, top to bottom)' : 'Models (deployments merged by price)'}
           </label>
 
           {editEntries.map((entry, index) => {
@@ -365,7 +405,9 @@ export default function VirtualModels() {
                     <div style={{ borderTop: '1px solid var(--border)', padding: '8px 12px 8px 44px' }}>
                       {entryDeployments.length === 0 ? (
                         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No active deployments</span>
-                      ) : entryDeployments.map((deployment) => {
+                      ) : [...entryDeployments].sort((a, b) =>
+                          (effectivePrice(a).input ?? Infinity) - (effectivePrice(b).input ?? Infinity)
+                        ).map((deployment) => {
                         const enabled = !entry.disabledDeployments.has(deployment.deploymentId)
                         const price = effectivePrice(deployment)
                         return (
@@ -475,7 +517,7 @@ export default function VirtualModels() {
           <h3>No virtual models yet</h3>
           <p>Create a virtual model to define custom fallback chains across different models.</p>
           <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>
-            Clients use <code>virtual:name</code> as the model identifier.
+            Use the virtual model name as the model identifier. Virtual models take priority over regular models.
           </p>
           <button className="btn btn-primary" onClick={startCreate} style={{ marginTop: 12 }}>
             Create Virtual Model
@@ -496,7 +538,11 @@ export default function VirtualModels() {
               {virtualModels.map((virtualModel) => (
                 <tr key={virtualModel.id}>
                   <td>
-                    <code style={{ color: 'var(--accent-blue)' }}>virtual:{virtualModel.name}</code>
+                    <code style={{ color: 'var(--accent-blue)' }}>{virtualModel.name}</code>
+                    {' '}
+                    <span className="badge" style={{ fontSize: 10, opacity: 0.7 }}>
+                      {virtualModel.mode === 'merge' ? 'merge' : 'fallback'}
+                    </span>
                   </td>
                   <td style={{ color: 'var(--text-secondary)' }}>{virtualModel.description || '—'}</td>
                   <td>
