@@ -16,6 +16,7 @@ import statsApi from './api/stats'
 import providersApi from './api/providers'
 import keysApi from './api/keys'
 import modelsApi from './api/models'
+import virtualModelsApi from './api/virtual-models'
 import benchmarksApi from './api/benchmarks'
 import { startSyncScheduler } from './sync/engine'
 import { canonicalize } from './sync/canonicalize'
@@ -45,6 +46,7 @@ app.route('/api', statsApi)
 app.route('/api/providers', providersApi)
 app.route('/api/keys', keysApi)
 app.route('/api/models', modelsApi)
+app.route('/api/virtual-models', virtualModelsApi)
 app.route('/api', benchmarksApi)
 
 // --- Shared LLM request handler ---
