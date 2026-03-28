@@ -9,6 +9,12 @@ app.get('/', async (c) => {
   const entries = await db.select().from(schema.virtualModelEntries)
   const overrides = await db.select().from(schema.virtualModelDeploymentOverrides)
 
+  // Build deployment → canonical lookup for filtering overrides per entry
+  const allDeployments = await db
+    .select({ deploymentId: schema.modelDeployments.deploymentId, canonical: schema.modelDeployments.canonical })
+    .from(schema.modelDeployments)
+  const deploymentCanonical = new Map(allDeployments.map((d) => [d.deploymentId, d.canonical]))
+
   const result = vms.map((vm) => ({
     ...vm,
     entries: entries
@@ -17,8 +23,8 @@ app.get('/', async (c) => {
       .map((entry) => ({
         ...entry,
         disabledDeployments: overrides
-          .filter((override) => override.virtualModelId === vm.id && override.disabled)
-          .map((override) => override.deploymentId),
+          .filter((o) => o.virtualModelId === vm.id && o.disabled && deploymentCanonical.get(o.deploymentId) === entry.canonical)
+          .map((o) => o.deploymentId),
       })),
   }))
 
