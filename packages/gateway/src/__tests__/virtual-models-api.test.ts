@@ -1,7 +1,6 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { rmSync } from 'fs'
+import { beforeAll, describe, expect, test } from 'bun:test'
 
-const DB_PATH = `/tmp/aigate-virtual-models-api-${Date.now()}.db`
+const DB_PATH = '/tmp/aigate-virtual-models-tests.db'
 process.env.DATABASE_URL = DB_PATH
 
 let app: any
@@ -10,15 +9,16 @@ let schema: any
 
 beforeAll(async () => {
   process.env.ADMIN_TOKEN = 'test-admin-token'
-  rmSync(DB_PATH, { force: true })
-
   await import('../db/migrate')
   ;({ db, schema } = await import('../db'))
   ;({ default: app } = await import('../api/virtual-models'))
-})
 
-afterAll(() => {
-  rmSync(DB_PATH, { force: true })
+  await db.delete(schema.virtualModelDeploymentOverrides)
+  await db.delete(schema.virtualModelEntries)
+  await db.delete(schema.virtualModels)
+  await db.delete(schema.modelDeployments)
+  await db.delete(schema.providers)
+  await db.delete(schema.requestLogs)
 })
 
 describe('virtual models API', () => {

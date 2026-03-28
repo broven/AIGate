@@ -125,6 +125,7 @@ async function handleLLMRequest(
       gatewayKey: gatewayKeyName,
       sourceFormat: handler.sourceFormat,
       routeResult,
+      virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
     })
 
     return c.json(
@@ -176,6 +177,7 @@ async function handleLLMRequest(
         gatewayKey: gatewayKeyName,
         sourceFormat: handler.sourceFormat,
         routeResult,
+        virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
         response: streamUsage ? {
           id: '',
           model: universalReq.model,
@@ -192,6 +194,7 @@ async function handleLLMRequest(
         gatewayKey: gatewayKeyName,
         sourceFormat: handler.sourceFormat,
         routeResult,
+        virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
       })
     })
 
@@ -215,6 +218,7 @@ async function handleLLMRequest(
     sourceFormat: handler.sourceFormat,
     routeResult,
     response,
+    virtualModelName: universalReq.model.startsWith('virtual:') ? universalReq.model.slice(8) : undefined,
   })
 
   return c.json(handler.formatResponse(response))

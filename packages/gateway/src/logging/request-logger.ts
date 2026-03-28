@@ -10,6 +10,7 @@ interface LogParams {
   sourceFormat: 'openai' | 'gemini' | 'claude'
   routeResult: RouteResult
   response?: UniversalResponse
+  virtualModelName?: string
 }
 
 export async function logRequest(params: LogParams): Promise<void> {
@@ -61,6 +62,7 @@ export async function logRequest(params: LogParams): Promise<void> {
       cost,
       savedVsDirect,
       success: routeResult.finalProvider !== null,
+      virtualModelName: params.virtualModelName ?? null,
       createdAt: new Date().toISOString(),
     })
 
