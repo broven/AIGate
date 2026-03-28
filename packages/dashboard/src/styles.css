@@ -1127,6 +1127,15 @@ tr.expanded-content:hover td {
   cursor: not-allowed;
 }
 
+/* Enable toggle variant (green when checked, used in Virtual Models) */
+.blacklist-toggle.toggle-enable input:checked + .blacklist-toggle-slider {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+.blacklist-toggle.toggle-enable input:checked + .blacklist-toggle-slider::before {
+  background: var(--accent-green);
+}
+
 /* Group sections for NewAPI */
 .group-section {
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);

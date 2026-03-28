@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   getVirtualModels,
   createVirtualModel,
@@ -198,9 +198,34 @@ export default function VirtualModels() {
     }
   }
 
-  function effectiveInputPrice(deployment: ModelDeployment): number | null {
-    return deployment.manualPriceInput ?? deployment.priceInput
+  function effectivePrice(deployment: ModelDeployment): { input: number | null; output: number | null } {
+    return {
+      input: deployment.manualPriceInput ?? deployment.priceInput,
+      output: deployment.manualPriceOutput ?? deployment.priceOutput,
+    }
   }
+
+  // Add Model searchable dropdown state
+  const [addModelOpen, setAddModelOpen] = useState(false)
+  const [addModelSearch, setAddModelSearch] = useState('')
+  const addModelRef = useRef<HTMLDivElement>(null)
+
+  const filteredCanonicals = useMemo(() => {
+    if (!addModelSearch) return canonicalList
+    const q = addModelSearch.toLowerCase()
+    return canonicalList.filter((c) => c.toLowerCase().includes(q) || displayName(c).toLowerCase().includes(q))
+  }, [canonicalList, addModelSearch])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (addModelRef.current && !addModelRef.current.contains(e.target as Node)) {
+        setAddModelOpen(false)
+      }
+    }
+    if (addModelOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [addModelOpen])
 
   if (loading && !virtualModels) {
     return (
@@ -342,7 +367,7 @@ export default function VirtualModels() {
                         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No active deployments</span>
                       ) : entryDeployments.map((deployment) => {
                         const enabled = !entry.disabledDeployments.has(deployment.deploymentId)
-                        const price = effectiveInputPrice(deployment)
+                        const price = effectivePrice(deployment)
                         return (
                           <div
                             key={deployment.deploymentId}
@@ -350,25 +375,27 @@ export default function VirtualModels() {
                               display: 'flex',
                               alignItems: 'center',
                               gap: 8,
-                              padding: '4px 0',
+                              padding: '6px 0',
                               opacity: enabled ? 1 : 0.4,
                             }}
                           >
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', flex: 1 }}>
+                            <span className="badge" style={{ fontSize: 10 }}>
+                              {deployment.providerId}{deployment.groupName ? `-${deployment.groupName}` : ''}
+                            </span>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: 12, flex: 1 }}>{deployment.upstream}</span>
+                            <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                              {price.input !== null ? `$${price.input.toFixed(2)}` : '—'}
+                              {' / '}
+                              {price.output !== null ? `$${price.output.toFixed(2)}` : '—'}
+                            </span>
+                            <label className="blacklist-toggle toggle-enable" onClick={(e) => e.stopPropagation()}>
                               <input
                                 type="checkbox"
-                                className="custom-checkbox"
                                 checked={enabled}
                                 onChange={() => toggleDeployment(index, deployment.deploymentId)}
                               />
-                              <span className="badge" style={{ fontSize: 10 }}>
-                                {deployment.providerId}{deployment.groupName ? `-${deployment.groupName}` : ''}
-                              </span>
-                              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{deployment.upstream}</span>
+                              <span className="blacklist-toggle-slider" />
                             </label>
-                            <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                              {price !== null ? `$${price.toFixed(2)}` : '—'}
-                            </span>
                           </div>
                         )
                       })}
@@ -379,20 +406,46 @@ export default function VirtualModels() {
             )
           })}
 
-          <div style={{ marginTop: 12 }}>
-            <select
-              className="filter-select"
-              value=""
-              onChange={(event) => {
-                if (event.target.value) addModel(event.target.value)
-              }}
-              style={{ minWidth: 200 }}
-            >
-              <option value="">+ Add Model...</option>
-              {canonicalList.map((canonical) => (
-                <option key={canonical} value={canonical}>{displayName(canonical)}</option>
-              ))}
-            </select>
+          <div className="multi-select" ref={addModelRef} style={{ position: 'relative', marginTop: 12, display: 'inline-block' }}>
+            <button className="btn" onClick={() => { setAddModelOpen(!addModelOpen); if (!addModelOpen) setAddModelSearch('') }}>
+              + Add Model...
+            </button>
+            {addModelOpen && (
+              <div className="multi-select-popover multi-select-popover--models" style={{ left: 0, top: '100%', marginTop: 4 }}>
+                <div className="multi-select-sticky">
+                  <input
+                    type="text"
+                    className="multi-select-search"
+                    placeholder="Search models..."
+                    value={addModelSearch}
+                    onChange={(e) => setAddModelSearch(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div className="multi-select-list">
+                  {filteredCanonicals.map((canonical) => (
+                    <div
+                      key={canonical}
+                      className="multi-select-item"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        addModel(canonical)
+                        setAddModelOpen(false)
+                        setAddModelSearch('')
+                      }}
+                    >
+                      <span>{displayName(canonical)}</span>
+                      {canonical !== displayName(canonical) && (
+                        <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 'auto' }}>{canonical}</span>
+                      )}
+                    </div>
+                  ))}
+                  {filteredCanonicals.length === 0 && (
+                    <div style={{ padding: '8px', color: 'var(--text-muted)', fontSize: 13 }}>No models match</div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {saveError && (
