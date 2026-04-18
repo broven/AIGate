@@ -53,6 +53,12 @@ function buildBody(req: UniversalRequest, upstreamModel: string) {
       function: { name: t.name, description: t.description, parameters: t.parameters },
     }))
   }
+  if (req.parameters.toolChoice !== undefined) {
+    const tc = req.parameters.toolChoice
+    body.tool_choice = typeof tc === 'string'
+      ? tc
+      : { type: 'function', function: { name: tc.name } }
+  }
 
   return body
 }
