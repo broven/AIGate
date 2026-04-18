@@ -36,6 +36,7 @@ export interface UniversalRequest {
     stream?: boolean
     stop?: string[]
     tools?: ToolDefinition[]
+    toolChoice?: 'auto' | 'required' | 'none' | { type: 'function'; name: string }
   }
   metadata: {
     sourceFormat: 'openai' | 'gemini' | 'claude'

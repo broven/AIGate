@@ -1,6 +1,23 @@
 import type { UniversalRequest, UniversalMessage, ContentPart, ToolCall, ToolDefinition } from '@aigate/shared'
 import { nanoid } from '../../utils'
 
+export const STRUCTURED_OUTPUT_SENTINEL = '__aigate_structured_output__'
+
+type OpenAIToolChoice =
+  | 'auto'
+  | 'required'
+  | 'none'
+  | { type: 'function'; function: { name: string } }
+
+interface OpenAIResponseFormat {
+  type: 'text' | 'json_object' | 'json_schema'
+  json_schema?: {
+    name: string
+    schema: Record<string, unknown>
+    strict?: boolean
+  }
+}
+
 interface OpenAIMessage {
   role: string
   content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> | null
@@ -25,6 +42,8 @@ interface OpenAIChatRequest {
     type: 'function'
     function: { name: string; description: string; parameters: Record<string, unknown> }
   }>
+  tool_choice?: OpenAIToolChoice
+  response_format?: OpenAIResponseFormat
 }
 
 function parseMessage(msg: OpenAIMessage): UniversalMessage {
@@ -71,11 +90,45 @@ export function parseOpenAIRequest(
   body: OpenAIChatRequest,
   gatewayKeyName: string,
 ): UniversalRequest {
-  const tools: ToolDefinition[] | undefined = body.tools?.map((t) => ({
+  const tools: ToolDefinition[] = body.tools?.map((t) => ({
     name: t.function.name,
     description: t.function.description,
     parameters: t.function.parameters,
-  }))
+  })) ?? []
+
+  let toolChoice: UniversalRequest['parameters']['toolChoice']
+  if (body.tool_choice !== undefined) {
+    if (typeof body.tool_choice === 'string') {
+      toolChoice = body.tool_choice
+    } else if (body.tool_choice.type === 'function') {
+      toolChoice = { type: 'function', name: body.tool_choice.function.name }
+    }
+  }
+
+  if (body.response_format?.type === 'json_schema') {
+    if (body.stream) {
+      throw new Error('response_format: json_schema is not supported with stream: true')
+    }
+    const schema = body.response_format.json_schema?.schema
+    if (!schema || typeof schema !== 'object') {
+      throw new Error('response_format.json_schema.schema is required')
+    }
+    if (tools.some((t) => t.name === STRUCTURED_OUTPUT_SENTINEL)) {
+      throw new Error(`Tool name "${STRUCTURED_OUTPUT_SENTINEL}" is reserved`)
+    }
+    if (body.response_format.json_schema?.strict) {
+      console.debug('structured_output.strict_downgraded', {
+        gatewayKey: gatewayKeyName,
+        model: body.model,
+      })
+    }
+    tools.push({
+      name: STRUCTURED_OUTPUT_SENTINEL,
+      description: 'Return the structured response matching the requested schema.',
+      parameters: schema,
+    })
+    toolChoice = { type: 'function', name: STRUCTURED_OUTPUT_SENTINEL }
+  }
 
   return {
     id: nanoid(),
@@ -87,7 +140,8 @@ export function parseOpenAIRequest(
       topP: body.top_p,
       stream: body.stream ?? false,
       stop: typeof body.stop === 'string' ? [body.stop] : body.stop,
-      tools,
+      tools: tools.length > 0 ? tools : undefined,
+      toolChoice,
     },
     metadata: {
       sourceFormat: 'openai',
@@ -110,7 +164,12 @@ export function formatOpenAIResponse(
     content: typeof content === 'string' ? content : null,
   }
 
-  if (toolCalls && toolCalls.length > 0) {
+  const sentinelCall = toolCalls?.find((tc) => tc.name === STRUCTURED_OUTPUT_SENTINEL)
+  const isStructuredOutput = sentinelCall !== undefined
+
+  if (isStructuredOutput) {
+    message.content = sentinelCall.arguments
+  } else if (toolCalls && toolCalls.length > 0) {
     message.tool_calls = toolCalls.map((tc) => ({
       id: tc.id,
       type: 'function' as const,
@@ -134,7 +193,7 @@ export function formatOpenAIResponse(
       {
         index: 0,
         message,
-        finish_reason: finishMap[finishReason] || 'stop',
+        finish_reason: isStructuredOutput ? 'stop' : (finishMap[finishReason] || 'stop'),
       },
     ],
     usage: usage

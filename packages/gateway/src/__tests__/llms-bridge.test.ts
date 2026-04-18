@@ -129,6 +129,30 @@ describe('llms-bridge', () => {
       expect(unified.messages[0].tool_call_id).toBe('call_1')
     })
 
+    test('maps toolChoice string', () => {
+      const req: UniversalRequest = {
+        ...baseRequest,
+        parameters: { ...baseRequest.parameters, toolChoice: 'required' },
+      }
+      const unified = universalToUnified(req)
+      expect(unified.tool_choice).toBe('required')
+    })
+
+    test('maps toolChoice {type,name} → OpenAI shape {type,function:{name}}', () => {
+      const req: UniversalRequest = {
+        ...baseRequest,
+        parameters: {
+          ...baseRequest.parameters,
+          toolChoice: { type: 'function', name: 'get_weather' },
+        },
+      }
+      const unified = universalToUnified(req)
+      expect(unified.tool_choice).toEqual({
+        type: 'function',
+        function: { name: 'get_weather' },
+      })
+    })
+
     test('maps content parts (text + image)', () => {
       const req: UniversalRequest = {
         ...baseRequest,
@@ -217,6 +241,24 @@ describe('llms-bridge', () => {
       expect(universal.messages[0].toolCalls).toBeDefined()
       expect(universal.messages[0].toolCalls![0].id).toBe('call_1')
       expect(universal.messages[0].toolCalls![0].name).toBe('get_weather')
+    })
+
+    test('maps tool_choice string from unified', () => {
+      const unified = { ...baseUnified, tool_choice: 'required' as const }
+      const universal = unifiedToUniversal(unified, { sourceFormat: 'openai', gatewayKey: 'test' })
+      expect(universal.parameters.toolChoice).toBe('required')
+    })
+
+    test('maps tool_choice {type,function:{name}} from unified → {type,name}', () => {
+      const unified = {
+        ...baseUnified,
+        tool_choice: { type: 'function' as const, function: { name: 'get_weather' } },
+      }
+      const universal = unifiedToUniversal(unified, { sourceFormat: 'openai', gatewayKey: 'test' })
+      expect(universal.parameters.toolChoice).toEqual({
+        type: 'function',
+        name: 'get_weather',
+      })
     })
 
     test('maps tool_call_id from unified format', () => {

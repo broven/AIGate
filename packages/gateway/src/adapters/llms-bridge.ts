@@ -82,6 +82,7 @@ interface UnifiedChatRequest {
   stream?: boolean
   stop?: string[]
   tools?: Array<{ type: 'function'; function: { name: string; description: string; parameters: any } }>
+  tool_choice?: 'auto' | 'required' | 'none' | { type: 'function'; function: { name: string } }
   [key: string]: any
 }
 
@@ -126,6 +127,12 @@ export function universalToUnified(req: UniversalRequest): UnifiedChatRequest {
       type: 'function' as const,
       function: { name: t.name, description: t.description, parameters: t.parameters },
     }))
+  }
+  if (req.parameters.toolChoice !== undefined) {
+    const tc = req.parameters.toolChoice
+    unified.tool_choice = typeof tc === 'string'
+      ? tc
+      : { type: 'function', function: { name: tc.name } }
   }
 
   return unified
@@ -176,6 +183,13 @@ export function unifiedToUniversal(
     parameters: t.function.parameters,
   }))
 
+  let toolChoice: UniversalRequest['parameters']['toolChoice']
+  if (unified.tool_choice !== undefined) {
+    toolChoice = typeof unified.tool_choice === 'string'
+      ? unified.tool_choice
+      : { type: 'function', name: unified.tool_choice.function.name }
+  }
+
   return {
     id: nanoid(),
     model: unified.model,
@@ -187,6 +201,7 @@ export function unifiedToUniversal(
       stream: unified.stream ?? false,
       stop: unified.stop,
       tools,
+      toolChoice,
     },
     metadata: {
       sourceFormat: metadata.sourceFormat,
