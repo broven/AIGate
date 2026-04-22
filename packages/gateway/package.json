@@ -13,7 +13,7 @@
   "dependencies": {
     "@aigate/shared": "workspace:*",
     "@musistudio/llms": "^1.0.53",
-    "drizzle-orm": "^0.39.0",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.7.0"
   },
   "devDependencies": {
