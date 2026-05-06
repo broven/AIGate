@@ -57,16 +57,21 @@ app.put('/:id', async (c) => {
     apiFormat: body.apiFormat ?? 'openai',
     endpoint: body.endpoint.replace(/\/$/, ''),
     costMultiplier: body.costMultiplier ?? 1.0,
-    newApiUserId: body.newApiUserId ?? null,
-    modelsDevSlug: body.modelsDevSlug ?? null,
-    blackGroupMatch: body.blackGroupMatch ? JSON.stringify(body.blackGroupMatch) : null,
     syncEnabled: body.syncEnabled ?? true,
     syncIntervalMinutes: body.syncIntervalMinutes ?? 60,
   }
 
-  // Only update secrets if explicitly provided (frontend omits them to keep current values)
+  // Only update fields the frontend explicitly sent. Frontends omit unchanged
+  // fields (especially secrets and credentials) and we must not clobber them.
   if ('apiKey' in body) updates.apiKey = body.apiKey || ''
   if ('accessToken' in body) updates.accessToken = body.accessToken ?? null
+  if ('newApiUserId' in body) updates.newApiUserId = body.newApiUserId ?? null
+  if ('modelsDevSlug' in body) updates.modelsDevSlug = body.modelsDevSlug ?? null
+  if ('blackGroupMatch' in body) {
+    updates.blackGroupMatch = body.blackGroupMatch
+      ? JSON.stringify(body.blackGroupMatch)
+      : null
+  }
 
   await db
     .update(schema.providers)
