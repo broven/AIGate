@@ -184,6 +184,24 @@ and none of them return prices. Without a slug those Deployments end up
 unpriced — and an unpriced Deployment is **excluded from routing** rather than
 scheduled at an unknown cost.
 
+#### Free Providers
+
+Some upstreams have no per-token price to look up at all: a flat-rate
+subscription, or an account whose usage simply never bills. models.dev lists
+Ollama Cloud's models with no `cost` field, for instance, so no slug can price
+them.
+
+Set the Provider's `costMultiplier` to exactly **0** to declare it free. A zero
+multiplier already means "whatever the list price is, we pay 0" — this extends
+that to Deployments that have no list price, resolving them to 0 instead of to
+unknown. Such Deployments stay routable, cost 0, and therefore sort **ahead of
+every priced Deployment**, so a free Provider is consumed first and the paid
+ones act as its fallback.
+
+Note the flip side: a zero multiplier sends all matching traffic to that
+Provider first. If its upstream enforces its own quota or rate limit, that is
+where the traffic will pile up.
+
 ### Provider Cost Limits
 
 Each Provider can carry a hard spend ceiling:
