@@ -32,6 +32,23 @@ export interface EffectiveDeploymentPrice extends DeploymentRates {
 const NOMINAL_REQUEST_TOKENS = 2000
 
 /**
+ * A Cost Multiplier of exactly 0 is the operator declaring the whole Provider
+ * free — a flat-rate subscription, or an account whose usage never bills.
+ * "Whatever the list price is, we pay 0" holds just as well when there IS no
+ * list price, so a zero multiplier resolves an unpriced Deployment to 0 rather
+ * than to unknown.
+ *
+ * Without this, a free Provider whose upstream publishes no prices (Ollama
+ * Cloud, for one — models.dev lists its models with no `cost` at all) resolves
+ * to `Infinity`, counts as unpriced, and is silently dropped from routing.
+ * It also removes the `0 * Infinity = NaN` case, since the multiplier is
+ * consulted before any rate is.
+ */
+function freeProvider(multiplier: number): boolean {
+  return multiplier === 0
+}
+
+/**
  * Manual prices are entered by an operator as the upstream's list price, so the
  * Cost Multiplier still has to be applied to reach what we actually pay.
  * Synced prices already have it baked in during sync — multiplying again would
@@ -39,17 +56,28 @@ const NOMINAL_REQUEST_TOKENS = 2000
  */
 export function getEffectivePrice(row: DeploymentPriceRow): EffectiveDeploymentPrice {
   const multiplier = row.costMultiplier ?? 1
+  const free = freeProvider(multiplier)
 
-  const input = row.manualPriceInput !== null && row.manualPriceInput !== undefined
-    ? row.manualPriceInput * multiplier
-    : row.priceInput ?? Infinity
-  const output = row.manualPriceOutput !== null && row.manualPriceOutput !== undefined
-    ? row.manualPriceOutput * multiplier
-    : row.priceOutput ?? Infinity
+  const input = free
+    ? 0
+    : row.manualPriceInput !== null && row.manualPriceInput !== undefined
+      ? row.manualPriceInput * multiplier
+      : row.priceInput ?? Infinity
+  const output = free
+    ? 0
+    : row.manualPriceOutput !== null && row.manualPriceOutput !== undefined
+      ? row.manualPriceOutput * multiplier
+      : row.priceOutput ?? Infinity
 
-  const perCall = row.pricePerCall ?? null
-  const cacheRead = row.priceCacheRead ?? null
-  const cacheWrite = row.priceCacheWrite ?? null
+  // A free Provider costs nothing per call either, and its cache reads and
+  // writes are free too — every rate it reports collapses to 0. A Deployment
+  // that is not per-call priced stays that way; only its amount goes to zero.
+  const declaredPerCall = row.pricePerCall ?? null
+  const perCall = free
+    ? (declaredPerCall === null ? null : 0)
+    : declaredPerCall
+  const cacheRead = free ? 0 : row.priceCacheRead ?? null
+  const cacheWrite = free ? 0 : row.priceCacheWrite ?? null
 
   const priced = perCall !== null
     ? Number.isFinite(perCall)

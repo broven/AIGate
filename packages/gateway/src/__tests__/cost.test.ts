@@ -146,8 +146,7 @@ describe('computeCost — non-finite guards', () => {
     expect(computeCost({ priceInput: 3, priceOutput: null }, { inputTokens: 10, outputTokens: 10 })).toBeNull()
   })
 
-  test('costMultiplier=0 over an unpriced model (0 * Infinity = NaN) yields null', () => {
-    // getEffectivePrice surfaces a missing synced price as Infinity...
+  test('an unpriced model under a non-zero multiplier stays unpriced, and a NaN rate never bills', () => {
     const prices = getEffectivePrice({
       priceInput: null,
       priceOutput: null,
@@ -156,14 +155,14 @@ describe('computeCost — non-finite guards', () => {
       priceCacheRead: null,
       priceCacheWrite: null,
       pricePerCall: null,
-      costMultiplier: 0,
+      costMultiplier: 1,
     })
     expect(prices.priced).toBe(false)
 
-    // ...and 0 tokens against an Infinity rate produces NaN, which must not
-    // reach an aggregate any more than Infinity may.
-    const nan = 0 * Infinity
-    expect(Number.isNaN(nan)).toBe(true)
+    // The guard has to hold for NaN as much as for Infinity, whatever produced
+    // it — 0 * Infinity is the way it used to arise here.
+    expect(Number.isNaN(0 * Infinity)).toBe(true)
+    expect(computeCost({ priceInput: NaN, priceOutput: NaN }, { inputTokens: 10, outputTokens: 10 })).toBeNull()
     expect(
       computeCost(
         { priceInput: prices.priceInput, priceOutput: prices.priceOutput },
@@ -273,5 +272,100 @@ describe('computeSavedVsDirect', () => {
     expect(
       computeSavedVsDirect(null, { priceInput: 3, priceOutput: 15 }, { inputTokens: 1, outputTokens: 1 }),
     ).toBeNull()
+  })
+})
+
+describe('getEffectivePrice — a zero Cost Multiplier declares the Provider free', () => {
+  const free = {
+    manualPriceInput: null,
+    manualPriceOutput: null,
+    priceCacheRead: null,
+    priceCacheWrite: null,
+    pricePerCall: null,
+    costMultiplier: 0,
+  }
+
+  test('an unpriced Deployment resolves to 0 and stays routable', () => {
+    // Ollama Cloud is the real case: a flat-rate subscription whose models
+    // models.dev lists with no cost at all. Before this rule those Deployments
+    // resolved to Infinity, counted as unpriced, and silently left routing.
+    const p = getEffectivePrice({ ...free, priceInput: null, priceOutput: null })
+    expect(p.priced).toBe(true)
+    expect(p.priceInput).toBe(0)
+    expect(p.priceOutput).toBe(0)
+    expect(p.effective).toBe(0)
+  })
+
+  test('a priced Deployment is also free — the multiplier still means what it says', () => {
+    const p = getEffectivePrice({ ...free, priceInput: 3, priceOutput: 15 })
+    expect(p.priced).toBe(true)
+    expect(p.priceInput).toBe(0)
+    expect(p.priceOutput).toBe(0)
+  })
+
+  test('manual prices are overridden too', () => {
+    const p = getEffectivePrice({
+      ...free,
+      priceInput: null,
+      priceOutput: null,
+      manualPriceInput: 99,
+      manualPriceOutput: 99,
+    })
+    expect(p.priceInput).toBe(0)
+    expect(p.priceOutput).toBe(0)
+  })
+
+  test('cache and per-call rates collapse to 0, and a non-per-call Deployment stays non-per-call', () => {
+    const perToken = getEffectivePrice({
+      ...free,
+      priceInput: 3,
+      priceOutput: 15,
+      priceCacheRead: 0.3,
+      priceCacheWrite: 3.75,
+    })
+    expect(perToken.priceCacheRead).toBe(0)
+    expect(perToken.priceCacheWrite).toBe(0)
+    expect(perToken.pricePerCall).toBeNull()
+
+    const perCall = getEffectivePrice({ ...free, priceInput: null, priceOutput: null, pricePerCall: 0.1 })
+    expect(perCall.pricePerCall).toBe(0)
+    expect(perCall.priced).toBe(true)
+    expect(perCall.effective).toBe(0)
+  })
+
+  test('a free Deployment outranks every priced one', () => {
+    const freeP = getEffectivePrice({ ...free, priceInput: null, priceOutput: null })
+    const cheap = getEffectivePrice({
+      priceInput: 0.03,
+      priceOutput: 0.12,
+      manualPriceInput: null,
+      manualPriceOutput: null,
+      priceCacheRead: null,
+      priceCacheWrite: null,
+      pricePerCall: null,
+      costMultiplier: 1,
+    })
+    expect(freeP.effective).toBeLessThan(cheap.effective)
+  })
+
+  test('a negative or absent multiplier is not a free declaration', () => {
+    const absent = getEffectivePrice({
+      priceInput: null,
+      priceOutput: null,
+      manualPriceInput: null,
+      manualPriceOutput: null,
+      priceCacheRead: null,
+      priceCacheWrite: null,
+      pricePerCall: null,
+      costMultiplier: null,
+    })
+    expect(absent.priced).toBe(false)
+  })
+
+  test('the resolved zero rates produce a real 0 cost, not null', () => {
+    const p = getEffectivePrice({ ...free, priceInput: null, priceOutput: null })
+    expect(
+      computeCost({ priceInput: p.priceInput, priceOutput: p.priceOutput }, { inputTokens: 5000, outputTokens: 900 }),
+    ).toBe(0)
   })
 })
