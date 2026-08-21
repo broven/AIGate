@@ -133,5 +133,5 @@ jobs:
 
       - name: Trigger deploy webhook
         run: |
-          curl -sf "https://metainfra.top/api/v1/deploy?uuid=kvxrbtjqmnuzbqc0bg1shaww&force=true" \
+          curl -sf -X POST "https://metainfra.top/api/v1/deploy?uuid=kvxrbtjqmnuzbqc0bg1shaww&force=true" \
             --header "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
