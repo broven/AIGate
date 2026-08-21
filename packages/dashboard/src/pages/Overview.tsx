@@ -92,6 +92,11 @@ export default function Overview() {
         <div className="stat-card">
           <div className="label">Success Rate</div>
           <div className="value">{statsLoading ? '—' : `${(stats?.today.successRate ?? 0).toFixed(1)}%`}</div>
+          {!statsLoading && (stats?.today.blockedByCostLimit ?? 0) > 0 && (
+            <div className="note">
+              {stats!.today.blockedByCostLimit} blocked by cost limit
+            </div>
+          )}
         </div>
         <div className="stat-card">
           <div className="label">Active Providers</div>

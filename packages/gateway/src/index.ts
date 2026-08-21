@@ -8,6 +8,7 @@ import { parseOpenAIRequest, formatOpenAIResponse, formatOpenAIError } from './a
 import { parseAnthropicRequest, formatAnthropicResponse, formatAnthropicError } from './adapters/inbound/anthropic'
 import { parseGeminiRequest, formatGeminiResponse, formatGeminiError } from './adapters/inbound/gemini'
 import { routeRequest } from './router/price-router'
+import { getInFlight, getReservedUsd } from './router/cost-limit'
 import { logRequest } from './logging/request-logger'
 import { extractUsageFromStream } from './logging/stream-usage-extractor'
 import { initLlmsBridge, getTransformer, buildContext } from './adapters/llms-bridge'
@@ -119,6 +120,8 @@ async function handleLLMRequest(
 
   // All providers failed
   if (!routeResult.finalProvider) {
+    // A blocked request is still recorded — but logRequest only adds to Spend
+    // when a Provider was actually reached, so it costs nothing.
     logRequest({
       requestId: universalReq.id,
       model: universalReq.model,
@@ -127,6 +130,43 @@ async function handleLLMRequest(
       routeResult,
       virtualModelName: routeResult.virtualModelName,
     })
+
+    // Nothing reached an upstream AND at least one candidate was withheld by a
+    // Cost Limit: this is a deliberate shutoff, not an upstream outage, so it
+    // is a 503 (retry later / raise the limit), never a 404 or a 502.
+    const reachedUpstream = routeResult.attempts.some(
+      (a) => a.status === 'success' || a.status === 'failed',
+    )
+    if (!reachedUpstream && routeResult.costLimitBlocks.length > 0) {
+      const block = routeResult.costLimitBlocks[0]!
+      const body = handler.formatError(
+        `Provider "${block.providerName}" has reached its ${block.window} cost limit for model `
+          + `${universalReq.model}: spent $${block.spend.toFixed(4)} of an effective limit of `
+          + `$${block.effectiveLimit.toFixed(4)} (configured $${block.limit.toFixed(4)}; the difference is `
+          + `$${getReservedUsd(block.providerId).toFixed(4)} reserved for `
+          + `${getInFlight(block.providerId)} in-flight request(s)). `
+          + `Resets at ${block.resetAt}.`,
+        'server_error',
+        'provider_cost_limit_exceeded',
+      ) as Record<string, unknown>
+
+      return c.json(
+        {
+          ...body,
+          cost_limit: routeResult.costLimitBlocks.map((b) => ({
+            provider: b.providerName,
+            window: b.window,
+            spend_usd: b.spend,
+            limit_usd: b.limit,
+            effective_limit_usd: b.effectiveLimit,
+            in_flight: getInFlight(b.providerId),
+            reserved_usd: getReservedUsd(b.providerId),
+            reset_at: b.resetAt,
+          })),
+        },
+        503,
+      )
+    }
 
     return c.json(
       handler.formatError(
@@ -163,15 +203,40 @@ async function handleLLMRequest(
         universalReq.model,
       )
 
-      // If stream transformation returned an error (non-200), propagate it directly
+      // If stream transformation returned an error (non-200), propagate it —
+      // but the upstream call already happened and may already have been
+      // billed, so it still has to be logged (PLAN A3). Usage is unknown here
+      // because the passthrough is abandoned, so it is recorded as missing.
       if (!streamResponse.ok) {
+        // Nobody will ever read this stream, but the upstream is still
+        // generating into it — and still billing for it. Cancel it before the
+        // reservation goes away, so an abandoned connection can never outlive
+        // the accounting that stands in for it. The cancel propagates through
+        // the usage extractor to the upstream body. It throws instead of
+        // rejecting if a transformer already locked the stream, in which case
+        // that transformer owns it.
+        try {
+          await passthrough.cancel('stream format conversion unsupported')
+        } catch {
+          // Already locked or consumed downstream — not ours to cancel.
+        }
+
+        // Released only once the cost is persisted — see RouteResult.releaseInFlight.
+        logRequest({
+          requestId: universalReq.id,
+          model: universalReq.model,
+          gatewayKey: gatewayKeyName,
+          sourceFormat: handler.sourceFormat,
+          routeResult,
+          virtualModelName: routeResult.virtualModelName,
+        }).finally(() => routeResult.releaseInFlight?.())
         return streamResponse
       }
     }
 
     // Log after stream completes (fire-and-forget)
     usagePromise.then((streamUsage) => {
-      logRequest({
+      return logRequest({
         requestId: universalReq.id,
         model: universalReq.model,
         gatewayKey: gatewayKeyName,
@@ -188,7 +253,7 @@ async function handleLLMRequest(
       })
     }).catch((err) => {
       console.error('Stream usage extraction failed:', err)
-      logRequest({
+      return logRequest({
         requestId: universalReq.id,
         model: universalReq.model,
         gatewayKey: gatewayKeyName,
@@ -196,6 +261,11 @@ async function handleLLMRequest(
         routeResult,
         virtualModelName: routeResult.virtualModelName,
       })
+    }).finally(() => {
+      // The reservation stands in for this request's cost until addSpend has
+      // written it; dropping it before that leaves the request counted by
+      // neither the reservation nor the spend.
+      routeResult.releaseInFlight?.()
     })
 
     return new Response(streamResponse.body, {
@@ -211,6 +281,7 @@ async function handleLLMRequest(
   // Non-streaming response
   const response = routeResult.response!
 
+  // Fire-and-forget, but the reservation is held until the cost is persisted.
   logRequest({
     requestId: universalReq.id,
     model: universalReq.model,
@@ -219,7 +290,7 @@ async function handleLLMRequest(
     routeResult,
     response,
     virtualModelName: routeResult.virtualModelName,
-  })
+  }).finally(() => routeResult.releaseInFlight?.())
 
   return c.json(handler.formatResponse(response))
 }

@@ -1,9 +1,13 @@
 import type { ApiFormat } from '../adapters/registry'
 
-export interface StreamUsage {
-  inputTokens: number
-  outputTokens: number
-}
+import type { UniversalUsage } from '@aigate/shared'
+
+/**
+ * Same disjoint-bucket invariant as UniversalUsage: `inputTokens` excludes
+ * cached prompt tokens and `outputTokens` excludes reasoning tokens, so each
+ * bucket can be billed at its own rate without double counting.
+ */
+export type StreamUsage = UniversalUsage
 
 /**
  * Intercepts an SSE stream to extract usage (token counts) while passing
@@ -25,6 +29,9 @@ export function extractUsageFromStream(
   // Track usage across events (Anthropic splits input/output across events)
   let inputTokens = 0
   let outputTokens = 0
+  let cachedInputTokens = 0
+  let cacheWriteTokens = 0
+  let reasoningTokens = 0
   let foundUsage = false
   let lineBuffer = '' // Buffer for incomplete lines split across chunk boundaries
   let settled = false
@@ -32,7 +39,20 @@ export function extractUsageFromStream(
   function settle() {
     if (settled) return
     settled = true
-    resolveUsage(foundUsage ? { inputTokens, outputTokens } : null)
+    // null means "the upstream never told us" — NOT zero. The caller records
+    // it as usageMissing so an unmetered request can never be mistaken for a
+    // free one (PLAN A2).
+    resolveUsage(
+      foundUsage
+        ? {
+            inputTokens,
+            outputTokens,
+            cachedInputTokens: cachedInputTokens || undefined,
+            cacheWriteTokens: cacheWriteTokens || undefined,
+            reasoningTokens: reasoningTokens || undefined,
+          }
+        : null,
+    )
   }
 
   const transform = new TransformStream<Uint8Array, Uint8Array>({
@@ -101,21 +121,34 @@ export function extractUsageFromStream(
       if (format === 'openai') {
         // OpenAI: usage in final chunk when stream_options.include_usage is set
         if (obj.usage?.prompt_tokens !== undefined) {
-          inputTokens = obj.usage.prompt_tokens
-          outputTokens = obj.usage.completion_tokens ?? 0
+          // prompt_tokens includes cached; completion_tokens includes reasoning.
+          const cached = obj.usage.prompt_tokens_details?.cached_tokens ?? 0
+          const reasoning = obj.usage.completion_tokens_details?.reasoning_tokens ?? 0
+          inputTokens = Math.max(0, obj.usage.prompt_tokens - cached)
+          outputTokens = Math.max(0, (obj.usage.completion_tokens ?? 0) - reasoning)
+          cachedInputTokens = cached
+          reasoningTokens = reasoning
           foundUsage = true
         }
       } else if (format === 'gemini') {
         // Gemini: usageMetadata in each chunk, last one has final counts
         if (obj.usageMetadata?.promptTokenCount !== undefined) {
-          inputTokens = obj.usageMetadata.promptTokenCount
+          // promptTokenCount includes cached content; candidatesTokenCount
+          // excludes thoughts.
+          const cached = obj.usageMetadata.cachedContentTokenCount ?? 0
+          inputTokens = Math.max(0, obj.usageMetadata.promptTokenCount - cached)
           outputTokens = obj.usageMetadata.candidatesTokenCount ?? 0
+          cachedInputTokens = cached
+          reasoningTokens = obj.usageMetadata.thoughtsTokenCount ?? 0
           foundUsage = true
         }
       } else if (format === 'claude') {
         // Anthropic message_start: input token count
         if (obj.type === 'message_start' && obj.message?.usage) {
+          // Anthropic's input_tokens already excludes cache reads/writes.
           inputTokens = obj.message.usage.input_tokens ?? 0
+          cachedInputTokens = obj.message.usage.cache_read_input_tokens ?? 0
+          cacheWriteTokens = obj.message.usage.cache_creation_input_tokens ?? 0
           foundUsage = true
         }
         // Anthropic message_delta: output token count

@@ -178,9 +178,13 @@ export function parseAnthropicResponse(raw: any): UniversalResponse {
     content: textContent,
     finishReason: reasonMap[raw.stop_reason] ?? 'stop',
     toolCalls,
+    // Anthropic's input_tokens already EXCLUDES cache reads/writes, so the
+    // three buckets are disjoint as-is — no subtraction needed here.
     usage: {
       inputTokens: raw.usage?.input_tokens ?? 0,
       outputTokens: raw.usage?.output_tokens ?? 0,
+      cachedInputTokens: raw.usage?.cache_read_input_tokens || undefined,
+      cacheWriteTokens: raw.usage?.cache_creation_input_tokens || undefined,
     },
   }
 }

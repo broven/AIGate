@@ -150,11 +150,28 @@ export function formatGeminiResponse(resp: UniversalResponse): any {
         finishReason: finishReasonMap[resp.finishReason] ?? 'STOP',
       },
     ],
+    // Gemini's promptTokenCount INCLUDES cached content and thoughts are
+    // reported separately, so the disjoint billing buckets are recombined into
+    // the shape a Gemini client expects.
     usageMetadata: resp.usage
       ? {
-          promptTokenCount: resp.usage.inputTokens,
+          promptTokenCount:
+            resp.usage.inputTokens
+            + (resp.usage.cachedInputTokens ?? 0)
+            + (resp.usage.cacheWriteTokens ?? 0),
           candidatesTokenCount: resp.usage.outputTokens,
-          totalTokenCount: resp.usage.inputTokens + resp.usage.outputTokens,
+          ...(resp.usage.cachedInputTokens
+            ? { cachedContentTokenCount: resp.usage.cachedInputTokens }
+            : {}),
+          ...(resp.usage.reasoningTokens
+            ? { thoughtsTokenCount: resp.usage.reasoningTokens }
+            : {}),
+          totalTokenCount:
+            resp.usage.inputTokens
+            + (resp.usage.cachedInputTokens ?? 0)
+            + (resp.usage.cacheWriteTokens ?? 0)
+            + resp.usage.outputTokens
+            + (resp.usage.reasoningTokens ?? 0),
         }
       : { promptTokenCount: 0, candidatesTokenCount: 0, totalTokenCount: 0 },
   }

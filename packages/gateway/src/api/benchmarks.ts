@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { eq, and } from 'drizzle-orm'
 import { db, schema } from '../db'
 import { canonicalize } from '../sync/canonicalize'
+import { getEffectivePrice } from '../pricing/deployment-price'
 
 const app = new Hono()
 
@@ -121,6 +122,9 @@ app.get('/benchmarks', async (c) => {
       priceOutput: schema.modelDeployments.priceOutput,
       manualPriceInput: schema.modelDeployments.manualPriceInput,
       manualPriceOutput: schema.modelDeployments.manualPriceOutput,
+      priceCacheRead: schema.modelDeployments.priceCacheRead,
+      priceCacheWrite: schema.modelDeployments.priceCacheWrite,
+      pricePerCall: schema.modelDeployments.pricePerCall,
       status: schema.modelDeployments.status,
       costMultiplier: schema.providers.costMultiplier,
     })
@@ -131,10 +135,17 @@ app.get('/benchmarks', async (c) => {
   const points: any[] = []
 
   for (const row of rows) {
-    const effectiveInput = (row.manualPriceInput ?? row.priceInput ?? 0) * (row.costMultiplier ?? 1)
-    const effectiveOutput = (row.manualPriceOutput ?? row.priceOutput ?? 0) * (row.costMultiplier ?? 1)
+    // Synced prices already have the Cost Multiplier baked in at sync time;
+    // only manually entered prices still need it applied. This used to
+    // multiply both, charting synced deployments at multiplier-squared.
+    const prices = getEffectivePrice(row)
+    if (!prices.priced) continue
 
-    // Skip if both prices are null/0
+    const effectiveInput = Number.isFinite(prices.priceInput) ? prices.priceInput : 0
+    const effectiveOutput = Number.isFinite(prices.priceOutput) ? prices.priceOutput : 0
+
+    // A per-call deployment has no per-token price to plot on a $/1M axis.
+    if (prices.pricePerCall !== null) continue
     if (effectiveInput === 0 && effectiveOutput === 0) continue
 
     const blendedPrice = (3 * effectiveInput + effectiveOutput) / 4

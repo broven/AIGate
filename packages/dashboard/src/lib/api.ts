@@ -2,6 +2,10 @@ import { getAdminToken, clearAdminToken } from '../components/AuthGuard'
 
 const BASE = '/api'
 
+// Every id interpolated into a path below is percent-encoded. Deployment ids
+// embed the canonical model name, and Cloudflare canonicals contain slashes
+// (`cf-@cf/meta/llama-3-2-1b-instruct`) — unencoded they split into extra path
+// segments and the gateway route, which expects one segment, answers 404.
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getAdminToken()
   const res = await fetch(`${BASE}${path}`, {
@@ -58,11 +62,35 @@ export interface Provider {
   newApiUserId: number | null
   accessToken: string | null
   modelsDevSlug: string | null
+  /** Hard spend ceiling per UTC day, USD. null = unlimited. */
+  dailyCostLimitUsd: number | null
+  /** Hard spend ceiling per UTC calendar month, USD. null = unlimited. */
+  monthlyCostLimitUsd: number | null
+  spend: ProviderSpend
   blackGroupMatch: string[]
   syncEnabled: boolean
   syncIntervalMinutes: number
   lastSyncAt: string | null
   createdAt: string
+}
+
+export interface ProviderSpend {
+  /** Spend so far in the current UTC day, USD. */
+  daily: number
+  /** Spend so far in the current UTC calendar month, USD. */
+  monthly: number
+  /** Requests currently open against this Provider. */
+  inFlight: number
+  /** USD withheld for those requests, each reserved from its own Deployment's rates. */
+  reservedUsd: number
+  /** Output tokens assumed per in-flight request when reserving headroom. */
+  reserveOutputTokens: number
+  /** Configured limit minus the in-flight reservation. null = unlimited. */
+  effectiveDailyLimitUsd: number | null
+  effectiveMonthlyLimitUsd: number | null
+  /** ISO timestamps at which each window rolls over (fixed UTC). */
+  dailyResetAt: string
+  monthlyResetAt: string
 }
 
 export interface ModelsDevProvider {
@@ -98,14 +126,28 @@ export interface SyncResult {
 
 // Stats
 export const getStats = () => request<{
-  today: { requests: number; cost: number; saved: number; inputTokens: number; outputTokens: number; successRate: number }
+  today: {
+    requests: number
+    cost: number
+    saved: number
+    inputTokens: number
+    outputTokens: number
+    /** Share of logged requests that did not fail, 0..100. Cost Limit blocks are not failures. */
+    successRate: number
+    /** Every request logged today, including blocked and all-providers-failed ones. */
+    loggedRequests: number
+    /** Requests that reached a provider and still failed. */
+    failedRequests: number
+    /** Requests refused up front by a Provider Cost Limit. */
+    blockedByCostLimit: number
+  }
   total: { requests: number; cost: number; saved: number }
   activeProviders: number
 }>('/stats')
 
 export const getUsage = (date?: string) =>
   request<Array<{ date: string; gatewayKey: string; model: string; requestCount: number; totalCost: number; totalSaved: number }>>
-    (`/usage${date ? `?date=${date}` : ''}`)
+    (`/usage${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 
 // Logs
 export const getLogs = (params?: { cursor?: string; limit?: number; model?: string; key?: string; status?: string }) => {
@@ -119,20 +161,20 @@ export const getLogs = (params?: { cursor?: string; limit?: number; model?: stri
   return request<{ data: LogEntry[]; nextCursor: string | null }>(`/logs${qs ? `?${qs}` : ''}`)
 }
 
-export const getLog = (id: string) => request<LogEntry>(`/logs/${id}`)
+export const getLog = (id: string) => request<LogEntry>(`/logs/${encodeURIComponent(id)}`)
 
 // Providers
 export const getProviders = () => request<Provider[]>('/providers')
 export const createProvider = (data: Record<string, unknown>) =>
   request<{ id: string }>('/providers', { method: 'POST', body: JSON.stringify(data) })
 export const updateProvider = (id: string, data: Record<string, unknown>) =>
-  request<{ ok: boolean }>(`/providers/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  request<{ ok: boolean }>(`/providers/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteProvider = (id: string) =>
-  request<{ ok: boolean }>(`/providers/${id}`, { method: 'DELETE' })
+  request<{ ok: boolean }>(`/providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const syncProvider = (id: string) =>
-  request<SyncResult>(`/providers/${id}/sync`, { method: 'POST' })
+  request<SyncResult>(`/providers/${encodeURIComponent(id)}/sync`, { method: 'POST' })
 export const getSyncHistory = (id: string) =>
-  request<Array<Record<string, unknown>>>(`/providers/${id}/sync-history`)
+  request<Array<Record<string, unknown>>>(`/providers/${encodeURIComponent(id)}/sync-history`)
 export const getModelsDevProviders = () =>
   request<ModelsDevProvider[]>('/providers/models-dev-providers')
 
@@ -152,13 +194,13 @@ export const setModelPreferences = (canonicals: string[], preference: 'favorite'
     body: JSON.stringify({ canonicals, preference }),
   })
 export const updateModelPrice = (deploymentId: string, priceInput: number | null, priceOutput: number | null) =>
-  request<{ ok: boolean }>(`/models/${deploymentId}/price`, {
+  request<{ ok: boolean }>(`/models/${encodeURIComponent(deploymentId)}/price`, {
     method: 'PUT',
     body: JSON.stringify({ priceInput, priceOutput }),
   })
 
 export const setDeploymentBlacklist = (deploymentId: string, blacklisted: boolean) =>
-  request<{ ok: boolean }>(`/models/${deploymentId}/blacklist`, {
+  request<{ ok: boolean }>(`/models/${encodeURIComponent(deploymentId)}/blacklist`, {
     method: 'PUT',
     body: JSON.stringify({ blacklisted }),
   })
@@ -183,11 +225,11 @@ export const createKey = (name: string) =>
     body: JSON.stringify({ name }),
   })
 export const deleteKey = (id: string) =>
-  request<{ ok: boolean }>(`/keys/${id}`, { method: 'DELETE' })
+  request<{ ok: boolean }>(`/keys/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const getKeyStats = () =>
   request<Record<string, { requests: number; tokens: number; cost: number }>>('/keys/stats')
 export const getKeyUsage = (id: string) =>
-  request<KeyUsage>(`/keys/${id}/usage`)
+  request<KeyUsage>(`/keys/${encodeURIComponent(id)}/usage`)
 
 // Benchmarks
 export interface BenchmarkPoint {
@@ -243,10 +285,10 @@ export const updateVirtualModel = (id: string, data: {
   mode?: 'fallback' | 'merge'
   entries?: Array<{ canonical: string; priority: number; disabledDeployments?: string[] }>
 }) =>
-  request<{ ok: boolean }>(`/virtual-models/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  request<{ ok: boolean }>(`/virtual-models/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) })
 
 export const deleteVirtualModel = (id: string) =>
-  request<{ ok: boolean }>(`/virtual-models/${id}`, { method: 'DELETE' })
+  request<{ ok: boolean }>(`/virtual-models/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
 // Health
 export const getHealth = () => request<{ status: string; timestamp: string }>('/health')

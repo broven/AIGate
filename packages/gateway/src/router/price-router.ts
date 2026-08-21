@@ -9,33 +9,45 @@ import {
   enterCooldown,
   liftCooldown,
 } from './cooldown'
+import {
+  beginInFlight,
+  endInFlight,
+  evaluateCostLimit,
+  getSpend,
+  peekSpend,
+  reservationFor,
+  type CostLimitBlock,
+  type Reservation,
+} from './cost-limit'
+import { getEffectivePrice } from '../pricing/deployment-price'
 import type { ApiFormat } from '../adapters/registry'
+
+/** Why a Deployment was removed from the candidate set before it was ever tried. */
+type BlockReason =
+  | { kind: 'no_price' }
+  | { kind: 'cost_limit'; block: CostLimitBlock }
 
 interface Deployment {
   deploymentId: string
   providerId: string
+  /** The canonical model this Deployment serves — not the virtual alias asked for. */
+  canonical: string
   upstream: string
   groupName: string | null
   effectivePrice: number
   priceInput: number
   priceOutput: number
+  priceCacheRead: number | null
+  priceCacheWrite: number | null
+  pricePerCall: number | null
   endpoint: string
   apiKey: string
   apiFormat: ApiFormat
-}
-
-function getEffectivePrice(d: {
-  priceInput: number | null
-  priceOutput: number | null
-  manualPriceInput: number | null
-  manualPriceOutput: number | null
-  priceSource: string
-}): { input: number; output: number; effective: number } {
-  const input = d.manualPriceInput ?? d.priceInput ?? Infinity
-  const output = d.manualPriceOutput ?? d.priceOutput ?? Infinity
-  // Weighted: 30% input + 70% output (output dominates cost)
-  const effective = input * 0.3 + output * 0.7
-  return { input, output, effective }
+  dailyLimit: number | null
+  monthlyLimit: number | null
+  /** Spend as read during candidate selection; the claim-time re-check prefers the live cache. */
+  spendSnapshot: { daily: number; monthly: number } | null
+  blocked: BlockReason | null
 }
 
 async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
@@ -59,6 +71,9 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       groupName: schema.modelDeployments.groupName,
       priceInput: schema.modelDeployments.priceInput,
       priceOutput: schema.modelDeployments.priceOutput,
+      priceCacheRead: schema.modelDeployments.priceCacheRead,
+      priceCacheWrite: schema.modelDeployments.priceCacheWrite,
+      pricePerCall: schema.modelDeployments.pricePerCall,
       manualPriceInput: schema.modelDeployments.manualPriceInput,
       manualPriceOutput: schema.modelDeployments.manualPriceOutput,
       priceSource: schema.modelDeployments.priceSource,
@@ -66,6 +81,9 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       providerApiKey: schema.providers.apiKey,
       providerAccessToken: schema.providers.accessToken,
       providerApiFormat: schema.providers.apiFormat,
+      costMultiplier: schema.providers.costMultiplier,
+      dailyCostLimitUsd: schema.providers.dailyCostLimitUsd,
+      monthlyCostLimitUsd: schema.providers.monthlyCostLimitUsd,
       deploymentApiKey: schema.modelDeployments.apiKey,
     })
     .from(schema.modelDeployments)
@@ -78,22 +96,97 @@ async function getDeploymentsForModel(model: string): Promise<Deployment[]> {
       ),
     )
 
+  // Spend is read once per Provider per routing pass; getSpend caches by UTC day.
+  const spendByProvider = new Map<string, { daily: number; monthly: number }>()
+  for (const r of rows) {
+    if (r.dailyCostLimitUsd === null && r.monthlyCostLimitUsd === null) continue
+    if (spendByProvider.has(r.providerId)) continue
+    spendByProvider.set(r.providerId, await getSpend(r.providerId))
+  }
+
   return rows.map((r) => {
     const prices = getEffectivePrice(r)
+
+    // An unpriced Deployment used to route with an Infinity price, which made
+    // it the last resort everywhere and then billed the request at Infinity.
+    // It is now excluded outright — but recorded, so the reason is visible.
+    let blocked: BlockReason | null = prices.priced ? null : { kind: 'no_price' }
+
+    if (!blocked) {
+      const spend = spendByProvider.get(r.providerId)
+      if (spend) {
+        const block = evaluateCostLimit({
+          providerId: r.providerId,
+          providerName: r.providerId,
+          dailyLimit: r.dailyCostLimitUsd,
+          monthlyLimit: r.monthlyCostLimitUsd,
+          spend,
+        })
+        if (block) blocked = { kind: 'cost_limit', block }
+      }
+    }
+
     return {
       deploymentId: r.deploymentId,
       providerId: r.providerId,
+      canonical: model,
       upstream: r.upstream,
       groupName: r.groupName,
       effectivePrice: prices.effective,
-      priceInput: prices.input,
-      priceOutput: prices.output,
+      priceInput: prices.priceInput,
+      priceOutput: prices.priceOutput,
+      priceCacheRead: prices.priceCacheRead ?? null,
+      priceCacheWrite: prices.priceCacheWrite ?? null,
+      pricePerCall: prices.pricePerCall ?? null,
       endpoint: r.endpoint,
       // Priority: deployment-specific key > provider access token > provider API key
       apiKey: r.deploymentApiKey || r.providerAccessToken || r.providerApiKey || '',
       apiFormat: (r.providerApiFormat ?? 'openai') as ApiFormat,
+      dailyLimit: r.dailyCostLimitUsd,
+      monthlyLimit: r.monthlyCostLimitUsd,
+      spendSnapshot: spendByProvider.get(r.providerId) ?? null,
+      blocked,
     }
   })
+}
+
+/**
+ * Split a candidate list into routable Deployments and diagnostic attempts for
+ * the ones removed before they were tried, so a request that reaches nothing
+ * still explains itself in `request_logs`.
+ */
+function partitionBlocked(deployments: Deployment[]): {
+  routable: Deployment[]
+  attempts: RouteAttempt[]
+  costLimitBlocks: CostLimitBlock[]
+} {
+  const routable: Deployment[] = []
+  const attempts: RouteAttempt[] = []
+  const costLimitBlocks: CostLimitBlock[] = []
+
+  for (const d of deployments) {
+    if (!d.blocked) {
+      routable.push(d)
+      continue
+    }
+    const limitBlock = d.blocked.kind === 'cost_limit' ? d.blocked.block : null
+    if (limitBlock) costLimitBlocks.push(limitBlock)
+    attempts.push({
+      provider: d.providerId,
+      deploymentId: d.deploymentId,
+      groupName: d.groupName,
+      price: d.effectivePrice,
+      priceInput: d.priceInput,
+      priceOutput: d.priceOutput,
+      status: limitBlock ? 'skipped_cost_limit' : 'skipped_no_price',
+      error: limitBlock
+        ? `Provider ${limitBlock.providerName} reached its ${limitBlock.window} cost limit `
+          + `(spend $${limitBlock.spend.toFixed(6)} >= effective limit $${limitBlock.effectiveLimit.toFixed(6)})`
+        : 'No usable price — deployment excluded from routing',
+    })
+  }
+
+  return { routable, attempts, costLimitBlocks }
 }
 
 function classifyError(status: number): 'client' | 'auth' | 'rate_limit' | 'server' {
@@ -110,8 +203,37 @@ export interface RouteResult {
   attempts: RouteAttempt[]
   finalProvider: string | null
   totalLatencyMs: number
-  allPricePairs: { priceInput: number; priceOutput: number }[]
   virtualModelName?: string
+  /** Rates of the Deployment that actually served the request, for billing. */
+  finalRates?: {
+    priceInput: number
+    priceOutput: number
+    priceCacheRead: number | null
+    priceCacheWrite: number | null
+    pricePerCall: number | null
+  }
+  /** Canonical model of the Deployment that served the request (never the virtual alias). */
+  finalCanonical?: string
+  /** Providers removed from the candidate set by their Cost Limit. */
+  costLimitBlocks: CostLimitBlock[]
+  /**
+   * Releases the in-flight reservation held for a successful request. It must
+   * outlive the router call on EVERY path: the reservation is what stands in
+   * for this request's cost until `addSpend` has persisted it, so releasing it
+   * any earlier opens a window in which the request is counted by neither.
+   * Call it only once logging has completed.
+   */
+  releaseInFlight?: () => void
+}
+
+function ratesOf(d: Deployment): NonNullable<RouteResult['finalRates']> {
+  return {
+    priceInput: d.priceInput,
+    priceOutput: d.priceOutput,
+    priceCacheRead: d.priceCacheRead,
+    priceCacheWrite: d.priceCacheWrite,
+    pricePerCall: d.pricePerCall,
+  }
 }
 
 async function resolveVirtualModel(name: string): Promise<{
@@ -186,72 +308,26 @@ async function routeFallback(
   startTime: number,
 ): Promise<RouteResult> {
   const allAttempts: RouteAttempt[] = []
-  const allPrices: { priceInput: number; priceOutput: number }[] = []
+  const allCostLimitBlocks: CostLimitBlock[] = []
 
   for (const entry of entries) {
-    const deployments = (await getDeploymentsForModel(entry.canonical))
+    const candidates = (await getDeploymentsForModel(entry.canonical))
       .filter((deployment) => !entry.disabledDeploymentIds.has(deployment.deploymentId))
 
-    if (deployments.length === 0) continue
+    if (candidates.length === 0) continue
 
-    allPrices.push(...deployments
-      .filter((deployment) => deployment.priceInput < Infinity && deployment.priceOutput < Infinity)
-      .map((deployment) => ({ priceInput: deployment.priceInput, priceOutput: deployment.priceOutput })))
+    const { routable, attempts: blockedAttempts, costLimitBlocks } = partitionBlocked(candidates)
+    allAttempts.push(...blockedAttempts)
+    allCostLimitBlocks.push(...costLimitBlocks)
 
-    const sorted = [...deployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
-    const available = sorted.filter((deployment) => !isInCooldown(deployment.deploymentId))
-    const cooledDown = sorted.filter((deployment) => isInCooldown(deployment.deploymentId))
-
-    for (const deployment of cooledDown) {
-      allAttempts.push({
-        provider: deployment.providerId,
-        deploymentId: deployment.deploymentId,
-        groupName: deployment.groupName,
-        price: deployment.effectivePrice,
-        priceInput: deployment.priceInput,
-        priceOutput: deployment.priceOutput,
-        status: 'skipped_cooldown',
-      })
-    }
-
-    for (const deployment of available) {
-      const result = await tryDeployment(req, deployment)
-      allAttempts.push(result.attempt)
-
-      if (result.attempt.status === 'success') {
-        return {
-          response: result.response,
-          streamResponse: result.streamResponse,
-          upstreamFormat: deployment.apiFormat,
-          attempts: allAttempts,
-          finalProvider: deployment.providerId,
-          totalLatencyMs: Date.now() - startTime,
-          allPricePairs: allPrices,
-          virtualModelName: req.model,
-        }
-      }
-    }
-
-    for (const deployment of cooledDown) {
-      liftCooldown(deployment.deploymentId)
-      const result = await tryDeployment(req, deployment)
-      const idx = allAttempts.findIndex(
-        (attempt) => attempt.deploymentId === deployment.deploymentId && attempt.status === 'skipped_cooldown',
-      )
-      if (idx != -1) allAttempts[idx] = result.attempt
-      else allAttempts.push(result.attempt)
-
-      if (result.attempt.status === 'success') {
-        return {
-          response: result.response,
-          streamResponse: result.streamResponse,
-          upstreamFormat: deployment.apiFormat,
-          attempts: allAttempts,
-          finalProvider: deployment.providerId,
-          totalLatencyMs: Date.now() - startTime,
-          allPricePairs: allPrices,
-          virtualModelName: req.model,
-        }
+    const outcome = await attemptDeployments(req, routable, allAttempts, allCostLimitBlocks)
+    if (outcome) {
+      return {
+        ...outcome,
+        attempts: allAttempts,
+        totalLatencyMs: Date.now() - startTime,
+        costLimitBlocks: allCostLimitBlocks,
+        virtualModelName: req.model,
       }
     }
   }
@@ -260,7 +336,7 @@ async function routeFallback(
     attempts: allAttempts,
     finalProvider: null,
     totalLatencyMs: Date.now() - startTime,
-    allPricePairs: allPrices,
+    costLimitBlocks: allCostLimitBlocks,
     virtualModelName: req.model,
   }
 }
@@ -278,84 +354,16 @@ async function routeMerge(
     allDeployments.push(...deployments)
   }
 
-  if (allDeployments.length === 0) {
+  const { routable, attempts, costLimitBlocks } = partitionBlocked(allDeployments)
+
+  const outcome = await attemptDeployments(req, routable, attempts, costLimitBlocks)
+  if (outcome) {
     return {
-      attempts: [],
-      finalProvider: null,
+      ...outcome,
+      attempts,
       totalLatencyMs: Date.now() - startTime,
-      allPricePairs: [],
+      costLimitBlocks,
       virtualModelName: req.model,
-    }
-  }
-
-  // Route by price across all deployments, same as regular routing
-  const attempts: RouteAttempt[] = []
-  const allPricePairs = allDeployments
-    .filter((d) => d.priceInput < Infinity && d.priceOutput < Infinity)
-    .map((d) => ({ priceInput: d.priceInput, priceOutput: d.priceOutput }))
-
-  const sorted = [...allDeployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
-  const available = sorted.filter((d) => !isInCooldown(d.deploymentId))
-  const cooledDown = sorted.filter((d) => isInCooldown(d.deploymentId))
-
-  for (const d of cooledDown) {
-    attempts.push({
-      provider: d.providerId,
-      deploymentId: d.deploymentId,
-      groupName: d.groupName,
-      price: d.effectivePrice,
-      priceInput: d.priceInput,
-      priceOutput: d.priceOutput,
-      status: 'skipped_cooldown',
-    })
-  }
-
-  const failedDeployments = new Set<string>()
-
-  for (const deployment of available) {
-    const result = await tryDeployment(req, deployment)
-    attempts.push(result.attempt)
-
-    if (result.attempt.status === 'success') {
-      return {
-        response: result.response,
-        streamResponse: result.streamResponse,
-        upstreamFormat: deployment.apiFormat,
-        attempts,
-        finalProvider: deployment.providerId,
-        totalLatencyMs: Date.now() - startTime,
-        allPricePairs,
-        virtualModelName: req.model,
-      }
-    }
-    failedDeployments.add(deployment.deploymentId)
-  }
-
-  for (const deployment of cooledDown) {
-    if (failedDeployments.has(deployment.deploymentId)) continue
-    liftCooldown(deployment.deploymentId)
-
-    const result = await tryDeployment(req, deployment)
-    const idx = attempts.findIndex(
-      (a) => a.deploymentId === deployment.deploymentId && a.status === 'skipped_cooldown',
-    )
-    if (idx !== -1) {
-      attempts[idx] = result.attempt
-    } else {
-      attempts.push(result.attempt)
-    }
-
-    if (result.attempt.status === 'success') {
-      return {
-        response: result.response,
-        streamResponse: result.streamResponse,
-        upstreamFormat: deployment.apiFormat,
-        attempts,
-        finalProvider: deployment.providerId,
-        totalLatencyMs: Date.now() - startTime,
-        allPricePairs,
-        virtualModelName: req.model,
-      }
     }
   }
 
@@ -363,30 +371,47 @@ async function routeMerge(
     attempts,
     finalProvider: null,
     totalLatencyMs: Date.now() - startTime,
-    allPricePairs,
+    costLimitBlocks,
     virtualModelName: req.model,
   }
 }
 
 async function routeRegular(req: UniversalRequest, startTime: number): Promise<RouteResult> {
-  const attempts: RouteAttempt[] = []
   const allDeployments = await getDeploymentsForModel(req.model)
+  const { routable, attempts, costLimitBlocks } = partitionBlocked(allDeployments)
 
-  if (allDeployments.length === 0) {
+  const outcome = await attemptDeployments(req, routable, attempts, costLimitBlocks)
+  if (outcome) {
     return {
-      attempts: [],
-      finalProvider: null,
+      ...outcome,
+      attempts,
       totalLatencyMs: Date.now() - startTime,
-      allPricePairs: [],
+      costLimitBlocks,
     }
   }
 
-  const allPricePairs = allDeployments
-    .filter((d) => d.priceInput < Infinity && d.priceOutput < Infinity)
-    .map((d) => ({ priceInput: d.priceInput, priceOutput: d.priceOutput }))
+  return {
+    attempts,
+    finalProvider: null,
+    totalLatencyMs: Date.now() - startTime,
+    costLimitBlocks,
+  }
+}
 
-  const sorted = [...allDeployments].sort((a, b) => a.effectivePrice - b.effectivePrice)
+/**
+ * Try a set of routable Deployments cheapest-first, deferring cooled-down ones
+ * to a second pass. Appends every attempt to `attempts` and returns the
+ * successful outcome, or null if nothing succeeded.
+ */
+async function attemptDeployments(
+  req: UniversalRequest,
+  routable: Deployment[],
+  attempts: RouteAttempt[],
+  costLimitBlocks: CostLimitBlock[],
+): Promise<Pick<RouteResult, 'response' | 'streamResponse' | 'upstreamFormat' | 'finalProvider' | 'finalCanonical' | 'finalRates' | 'releaseInFlight'> | null> {
+  if (routable.length === 0) return null
 
+  const sorted = [...routable].sort((a, b) => a.effectivePrice - b.effectivePrice)
   const available = sorted.filter((d) => !isInCooldown(d.deploymentId))
   const cooledDown = sorted.filter((d) => isInCooldown(d.deploymentId))
 
@@ -405,18 +430,19 @@ async function routeRegular(req: UniversalRequest, startTime: number): Promise<R
   const failedDeployments = new Set<string>()
 
   for (const deployment of available) {
-    const result = await tryDeployment(req, deployment)
+    const result = await tryDeploymentTracked(req, deployment)
     attempts.push(result.attempt)
+    if (result.costLimitBlock) costLimitBlocks.push(result.costLimitBlock)
 
     if (result.attempt.status === 'success') {
       return {
         response: result.response,
         streamResponse: result.streamResponse,
         upstreamFormat: deployment.apiFormat,
-        attempts,
         finalProvider: deployment.providerId,
-        totalLatencyMs: Date.now() - startTime,
-        allPricePairs,
+        finalCanonical: deployment.canonical,
+        finalRates: ratesOf(deployment),
+        releaseInFlight: result.releaseInFlight,
       }
     }
     failedDeployments.add(deployment.deploymentId)
@@ -426,35 +452,124 @@ async function routeRegular(req: UniversalRequest, startTime: number): Promise<R
     if (failedDeployments.has(deployment.deploymentId)) continue
     liftCooldown(deployment.deploymentId)
 
-    const result = await tryDeployment(req, deployment)
+    const result = await tryDeploymentTracked(req, deployment)
+    if (result.costLimitBlock) costLimitBlocks.push(result.costLimitBlock)
     const idx = attempts.findIndex(
       (a) => a.deploymentId === deployment.deploymentId && a.status === 'skipped_cooldown',
     )
-    if (idx !== -1) {
-      attempts[idx] = result.attempt
-    } else {
-      attempts.push(result.attempt)
-    }
+    if (idx !== -1) attempts[idx] = result.attempt
+    else attempts.push(result.attempt)
 
     if (result.attempt.status === 'success') {
       return {
         response: result.response,
         streamResponse: result.streamResponse,
         upstreamFormat: deployment.apiFormat,
-        attempts,
         finalProvider: deployment.providerId,
-        totalLatencyMs: Date.now() - startTime,
-        allPricePairs,
+        finalCanonical: deployment.canonical,
+        finalRates: ratesOf(deployment),
+        releaseInFlight: result.releaseInFlight,
       }
     }
   }
 
-  return {
-    attempts,
-    finalProvider: null,
-    totalLatencyMs: Date.now() - startTime,
-    allPricePairs,
+  return null
+}
+
+/**
+ * Claim a Deployment: re-check its Provider's Cost Limit and take the
+ * reservation in ONE synchronous step.
+ *
+ * Candidate selection ran several `await`s ago, so two concurrent requests can
+ * both have passed that filter while neither was yet reflected in the other's
+ * effective limit. The re-check here is the one that actually gates dispatch,
+ * and because nothing is awaited between reading the spend and holding the
+ * reservation, the second request always sees the first one's claim.
+ */
+function claimDeployment(
+  deployment: Deployment,
+): { reservation: Reservation } | { block: CostLimitBlock } {
+  const amountUsd = reservationFor(deployment)
+
+  if (deployment.dailyLimit === null && deployment.monthlyLimit === null) {
+    return { reservation: beginInFlight(deployment.providerId, amountUsd) }
   }
+
+  // Cached spend, or the value read during selection — never a fresh query,
+  // which would reintroduce the await this function exists to avoid.
+  const spend =
+    peekSpend(deployment.providerId)
+    ?? deployment.spendSnapshot
+    ?? { daily: 0, monthly: 0 }
+
+  const block = evaluateCostLimit({
+    providerId: deployment.providerId,
+    providerName: deployment.providerId,
+    dailyLimit: deployment.dailyLimit,
+    monthlyLimit: deployment.monthlyLimit,
+    spend,
+  })
+  if (block) return { block }
+
+  return { reservation: beginInFlight(deployment.providerId, amountUsd) }
+}
+
+/**
+ * `tryDeployment` wrapped in the in-flight reservation that the Cost Limit's
+ * effective ceiling is computed from.
+ *
+ * On success the reservation is handed to the caller rather than released here:
+ * the request is still unaccounted for until `logRequest` has persisted its
+ * cost, and a stream is still spending money after `routeRequest` returns.
+ * Only a failed attempt — which will never reach `addSpend` — releases early.
+ */
+async function tryDeploymentTracked(
+  req: UniversalRequest,
+  deployment: Deployment,
+): Promise<{
+  attempt: RouteAttempt
+  response?: UniversalResponse
+  streamResponse?: Response
+  releaseInFlight?: () => void
+  costLimitBlock?: CostLimitBlock
+}> {
+  const claim = claimDeployment(deployment)
+
+  if ('block' in claim) {
+    const block = claim.block
+    return {
+      attempt: {
+        provider: deployment.providerId,
+        deploymentId: deployment.deploymentId,
+        groupName: deployment.groupName,
+        price: deployment.effectivePrice,
+        priceInput: deployment.priceInput,
+        priceOutput: deployment.priceOutput,
+        status: 'skipped_cost_limit',
+        error: `Provider ${block.providerName} reached its ${block.window} cost limit `
+          + `(spend $${block.spend.toFixed(6)} >= effective limit $${block.effectiveLimit.toFixed(6)})`,
+      },
+      costLimitBlock: block,
+    }
+  }
+
+  const reservation = claim.reservation
+  const release = () => endInFlight(reservation)
+
+  let result: Awaited<ReturnType<typeof tryDeployment>>
+  try {
+    result = await tryDeployment(req, deployment)
+  } catch (error) {
+    release()
+    throw error
+  }
+
+  if (result.attempt.status === 'success') {
+    return { ...result, releaseInFlight: release }
+  }
+
+  release()
+  return result
 }
 
 async function tryDeployment(

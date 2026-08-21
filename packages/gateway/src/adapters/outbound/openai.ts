@@ -1,4 +1,4 @@
-import type { UniversalRequest, UniversalResponse, ContentPart, ToolCall } from '@aigate/shared'
+import type { UniversalRequest, UniversalResponse, UniversalUsage, ContentPart, ToolCall } from '@aigate/shared'
 
 interface OutboundResult {
   response: UniversalResponse
@@ -109,9 +109,30 @@ export function parseOpenAIResponse(raw: Record<string, unknown>): UniversalResp
     content: (message?.content as string) ?? '',
     finishReason: finishMap[(choice?.finish_reason as string) ?? 'stop'] ?? 'stop',
     toolCalls,
-    usage: {
-      inputTokens: usage?.prompt_tokens ?? 0,
-      outputTokens: usage?.completion_tokens ?? 0,
-    },
+    usage: normalizeOpenAIUsage(raw.usage as Record<string, unknown> | undefined),
+  }
+}
+
+/**
+ * OpenAI reports totals that *contain* their sub-counts:
+ *   prompt_tokens     = uncached prompt + cached prompt
+ *   completion_tokens = visible output + reasoning
+ * Billing needs them disjoint (each bucket has its own rate), so the sub-counts
+ * are split out here. See UniversalUsage for the invariant.
+ */
+function normalizeOpenAIUsage(usage: Record<string, unknown> | undefined): UniversalUsage {
+  const promptTokens = (usage?.prompt_tokens as number) ?? 0
+  const completionTokens = (usage?.completion_tokens as number) ?? 0
+  const promptDetails = usage?.prompt_tokens_details as Record<string, number> | undefined
+  const completionDetails = usage?.completion_tokens_details as Record<string, number> | undefined
+
+  const cached = promptDetails?.cached_tokens ?? 0
+  const reasoning = completionDetails?.reasoning_tokens ?? 0
+
+  return {
+    inputTokens: Math.max(0, promptTokens - cached),
+    outputTokens: Math.max(0, completionTokens - reasoning),
+    cachedInputTokens: cached > 0 ? cached : undefined,
+    reasoningTokens: reasoning > 0 ? reasoning : undefined,
   }
 }

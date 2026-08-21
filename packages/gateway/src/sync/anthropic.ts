@@ -89,12 +89,18 @@ export async function syncAnthropicProvider(
     const canonical = canonicalize(modelId)
     let priceInput: number | null = null
     let priceOutput: number | null = null
+    let priceCacheRead: number | null = null
+    let priceCacheWrite: number | null = null
     let priceSource: 'provider_api' | 'models_dev' | 'unknown' = 'unknown'
 
-    const devPrice = lookupPrice(modelsDevPricing, modelId)
+    // Scoped to the provider slug: an unscoped lookup would resolve
+    // "claude-sonnet-4-5" to whichever reseller models.dev listed last.
+    const devPrice = lookupPrice(modelsDevPricing, modelId, slug)
     if (devPrice) {
       priceInput = devPrice.input * costMultiplier
       priceOutput = devPrice.output * costMultiplier
+      priceCacheRead = devPrice.cacheRead !== null ? devPrice.cacheRead * costMultiplier : null
+      priceCacheWrite = devPrice.cacheWrite !== null ? devPrice.cacheWrite * costMultiplier : null
       priceSource = 'models_dev'
     }
 
@@ -105,6 +111,9 @@ export async function syncAnthropicProvider(
       apiKey: null,
       priceInput,
       priceOutput,
+      priceCacheRead,
+      priceCacheWrite,
+      pricePerCall: null,
       priceSource,
     })
   }

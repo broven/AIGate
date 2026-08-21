@@ -11,6 +11,10 @@ export const providers = sqliteTable('providers', {
   newApiUserId: integer('new_api_user_id'),
   accessToken: text('access_token'),
   modelsDevSlug: text('models_dev_slug'),
+  /** Hard spend ceiling per UTC day, in USD. null = no limit. */
+  dailyCostLimitUsd: real('daily_cost_limit_usd'),
+  /** Hard spend ceiling per UTC calendar month, in USD. null = no limit. */
+  monthlyCostLimitUsd: real('monthly_cost_limit_usd'),
   blackGroupMatch: text('black_group_match'), // JSON array
   syncEnabled: integer('sync_enabled', { mode: 'boolean' }).notNull().default(true),
   syncIntervalMinutes: integer('sync_interval_minutes').notNull().default(60),
@@ -37,6 +41,10 @@ export const modelDeployments = sqliteTable('model_deployments', {
   priceSource: text('price_source', {
     enum: ['provider_api', 'models_dev', 'manual', 'unknown'],
   }).notNull().default('unknown'),
+  priceCacheRead: real('price_cache_read'),
+  priceCacheWrite: real('price_cache_write'),
+  /** Flat $ per request (NewAPI quota_type=1). Overrides all token rates. */
+  pricePerCall: real('price_per_call'),
   manualPriceInput: real('manual_price_input'),
   manualPriceOutput: real('manual_price_output'),
   blacklisted: integer('blacklisted', { mode: 'boolean' }).notNull().default(false),
@@ -68,6 +76,11 @@ export const requestLogs = sqliteTable('request_logs', {
   totalLatencyMs: integer('total_latency_ms').notNull(),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
+  cachedInputTokens: integer('cached_input_tokens'),
+  cacheWriteTokens: integer('cache_write_tokens'),
+  reasoningTokens: integer('reasoning_tokens'),
+  /** 1 when the upstream never reported usage — separates "unknown" from "free". */
+  usageMissing: integer('usage_missing', { mode: 'boolean' }).notNull().default(false),
   cost: real('cost'),
   savedVsDirect: real('saved_vs_direct'),
   success: integer('success', { mode: 'boolean' }).notNull().default(true),
@@ -91,6 +104,19 @@ export const dailyUsage = sqliteTable('daily_usage', {
   totalSaved: real('total_saved').default(0),
 }, (table) => [
   primaryKey({ columns: [table.date, table.gatewayKey, table.model] }),
+])
+
+/**
+ * Per-Provider spend, bucketed by UTC day. The monthly window is derived from
+ * this table (SUM over utc_date LIKE 'YYYY-MM%') rather than kept in a second
+ * table, so the two windows can never disagree.
+ */
+export const providerDailySpend = sqliteTable('provider_daily_spend', {
+  providerId: text('provider_id').notNull().references(() => providers.id, { onDelete: 'cascade' }),
+  utcDate: text('utc_date').notNull(), // YYYY-MM-DD, UTC
+  costUsd: real('cost_usd').notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.providerId, table.utcDate] }),
 ])
 
 export const kvCache = sqliteTable('kv_cache', {
