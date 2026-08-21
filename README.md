@@ -170,6 +170,111 @@ All endpoints accept auth via `Authorization: Bearer <key>` or `x-api-key: <key>
 | OpenRouter | `openai-compatible` | `openai` |
 | NewAPI relay | `newapi` | `openai` |
 
+### Pricing Sources
+
+A Provider's prices come from its own API when it publishes them, and otherwise
+from [models.dev](https://models.dev). models.dev is indexed **per provider**,
+so resolving a price requires knowing which provider slug to look under — set
+`modelsDevSlug` on the Provider to supply it.
+
+Once `modelsDevSlug` is set it takes priority for **pricing**, even when the
+Provider's `/v1/models` responds normally. The model *list* and the model
+*prices* are separate concerns: vLLM, Ollama and Azure all answer `/v1/models`
+and none of them return prices. Without a slug those Deployments end up
+unpriced — and an unpriced Deployment is **excluded from routing** rather than
+scheduled at an unknown cost.
+
+### Provider Cost Limits
+
+Each Provider can carry a hard spend ceiling:
+
+| Field | Meaning |
+|-------|---------|
+| `dailyCostLimitUsd` | Max spend per UTC day. `null` = unlimited. |
+| `monthlyCostLimitUsd` | Max spend per UTC calendar month. `null` = unlimited. |
+
+When either window is reached, **every** Deployment of that Provider leaves the
+candidate set — the allowance is account-level, not per-model. A request with no
+remaining candidates gets **HTTP 503** carrying the Provider, the current spend,
+the effective limit and the next UTC reset.
+
+The *effective* limit is lower than the configured one while requests are in
+flight, because their cost is not known until they finish. Each in-flight
+request reserves `output rate × 4096 tokens` of headroom, which is released when
+it completes. The dashboard shows both numbers.
+
+Windows are fixed UTC — the daily window rolls at 00:00 UTC and the monthly one
+at 00:00 UTC on the 1st. There is no alerting threshold and no temporary bypass.
+
+### Cloudflare Workers AI
+
+Verified end-to-end against a live Cloudflare account on 2026-08-21: a real
+request through AIGate returned HTTP 200, sync discovered 25 Deployments, and
+the recorded cost matched the hand-computed cost exactly.
+
+Cloudflare Workers AI is configured as a plain OpenAI-compatible Provider — no
+dedicated provider type:
+
+| Field | Value |
+|-------|-------|
+| `type` | `openai-compatible` |
+| `apiFormat` | `openai` |
+| `endpoint` | `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai` |
+| `modelsDevSlug` | `cloudflare-workers-ai` |
+| `apiKey` | a Cloudflare API token with Workers AI permissions |
+| `dailyCostLimitUsd` | e.g. `0.11` (the free daily allowance — see below) |
+
+**Send the canonical model name, not Cloudflare's id.** This is the single most
+common way to get a 404 from AIGate. Canonicalisation keeps the `@cf/` prefix
+(it is not a stripped provider prefix) but rewrites version dots to dashes, so
+for `@cf/meta/llama-3.2-1b-instruct` the two names are:
+
+| | Value |
+|---|---|
+| What clients send AIGate (`canonical`) | `@cf/meta/llama-3-2-1b-instruct` |
+| What AIGate sends Cloudflare (`upstream`) | `@cf/meta/llama-3.2-1b-instruct` |
+
+```bash
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer $AIGATE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"@cf/meta/llama-3-2-1b-instruct",
+       "messages":[{"role":"user","content":"hi"}]}'
+```
+
+Neither `@cf/meta/llama-3.2-1b-instruct` (dots) nor `llama-3.2-1b-instruct`
+(prefix dropped) will resolve. The `upstream` id keeps its original dots and is
+what actually goes to Cloudflare.
+
+**Free daily allowance.** Cloudflare grants 10,000 neurons/day ≈ **$0.11**. It
+resets at 00:00 UTC and does **not** roll over. Setting
+`dailyCostLimitUsd = 0.11` stops AIGate scheduling this Provider once the free
+allowance is spent; leaving it empty means "keep going and pay Cloudflare's
+rates".
+
+Notes:
+
+- The `endpoint` must **not** end in `/v1` — the outbound adapter appends
+  `/v1/chat/completions` itself. models.dev lists the `api` field as
+  `.../ai/v1`; do not copy that value verbatim.
+- Cloudflare's OpenAI-compatible surface has no `GET /v1/models` — it answers
+  **405**, so sync falls back to the configured models.dev slug. The observed
+  sync log line is:
+
+  ```
+  /v1/models failed (/models returned 405), falling back to models.dev [cloudflare-workers-ai]
+  ```
+
+- models.dev lists 25 Workers AI models. Cloudflare serves more than that;
+  models it does not list are **unpriced and therefore not routed**, rather than
+  being scheduled at an unknown price.
+- Prices are recorded in USD from models.dev. AIGate does not maintain a neuron
+  price table. Measured: 18 input + 2 output tokens on
+  `@cf/meta/llama-3-2-1b-instruct` at $0.027 / $0.201 per 1M = **$8.88e-07**,
+  which is exactly what was recorded.
+- Cloudflare also reports `usage.neurons` and a `cf-ai-neurons` response header.
+  AIGate does not consume either today — cost comes from the models.dev rates.
+
 ### Streaming Format Conversion
 
 | Upstream → Client | Status |

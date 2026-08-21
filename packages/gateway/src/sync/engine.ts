@@ -23,6 +23,7 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
       blackGroupMatch,
       provider.accessToken ?? undefined,
       provider.newApiUserId ?? undefined,
+      provider.modelsDevSlug ?? undefined,
     )
   } else if (provider.type === 'anthropic') {
     syncResult = await syncAnthropicProvider(
@@ -69,6 +70,9 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
           apiKey: model.apiKey,
           priceInput: model.priceInput,
           priceOutput: model.priceOutput,
+          priceCacheRead: model.priceCacheRead,
+          priceCacheWrite: model.priceCacheWrite,
+          pricePerCall: model.pricePerCall,
           priceSource: model.priceSource,
           status: 'active',
           lastSyncAt: new Date().toISOString(),
@@ -85,6 +89,9 @@ export async function syncProvider(provider: ProviderRow): Promise<SyncResult> {
         apiKey: model.apiKey,
         priceInput: model.priceInput,
         priceOutput: model.priceOutput,
+        priceCacheRead: model.priceCacheRead,
+        priceCacheWrite: model.priceCacheWrite,
+        pricePerCall: model.pricePerCall,
         priceSource: model.priceSource,
         status: 'active',
         lastSyncAt: new Date().toISOString(),

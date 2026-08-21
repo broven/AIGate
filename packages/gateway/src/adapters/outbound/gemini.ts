@@ -154,9 +154,14 @@ export function parseGeminiResponse(raw: any): UniversalResponse {
     content: textContent,
     finishReason: reasonMap[candidate?.finishReason] ?? 'stop',
     toolCalls,
+    // promptTokenCount INCLUDES cachedContentTokenCount, so the cached part is
+    // subtracted out; candidatesTokenCount excludes thoughts, so thinking
+    // tokens are carried separately (they are billed at the output rate).
     usage: {
-      inputTokens: usage.promptTokenCount ?? 0,
+      inputTokens: Math.max(0, (usage.promptTokenCount ?? 0) - (usage.cachedContentTokenCount ?? 0)),
       outputTokens: usage.candidatesTokenCount ?? 0,
+      cachedInputTokens: usage.cachedContentTokenCount || undefined,
+      reasoningTokens: usage.thoughtsTokenCount || undefined,
     },
   }
 }

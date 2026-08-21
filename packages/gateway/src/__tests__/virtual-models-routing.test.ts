@@ -28,6 +28,13 @@ beforeAll(async () => {
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+
+    // models.dev is the pricing/savings reference, not an upstream under test.
+    // Answer it with an empty catalogue so it never lands in upstreamCalls.
+    if (url.includes('models.dev')) {
+      return Response.json({})
+    }
+
     const body = init?.body ? JSON.parse(String(init.body)) : null
     upstreamCalls.push({ url, body })
 

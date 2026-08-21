@@ -70,8 +70,19 @@ export function formatAnthropicResponse(resp: UniversalResponse): any {
     model: resp.model,
     stop_reason: stopReasonMap[resp.finishReason] ?? 'end_turn',
     stop_sequence: null,
+    // input_tokens excludes the cache buckets in Anthropic's own format too,
+    // so they round-trip in their own fields rather than being folded away.
     usage: resp.usage
-      ? { input_tokens: resp.usage.inputTokens, output_tokens: resp.usage.outputTokens }
+      ? {
+          input_tokens: resp.usage.inputTokens,
+          output_tokens: resp.usage.outputTokens + (resp.usage.reasoningTokens ?? 0),
+          ...(resp.usage.cachedInputTokens
+            ? { cache_read_input_tokens: resp.usage.cachedInputTokens }
+            : {}),
+          ...(resp.usage.cacheWriteTokens
+            ? { cache_creation_input_tokens: resp.usage.cacheWriteTokens }
+            : {}),
+        }
       : { input_tokens: 0, output_tokens: 0 },
   }
 }

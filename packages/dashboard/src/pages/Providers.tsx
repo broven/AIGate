@@ -11,6 +11,8 @@ interface ProviderForm {
   newapiUserId: string
   accessToken: string
   modelsDevSlug: string
+  dailyCostLimitUsd: string
+  monthlyCostLimitUsd: string
   blackGroupMatch: string
   syncEnabled: boolean
   syncIntervalMinutes: number
@@ -26,9 +28,35 @@ const emptyForm: ProviderForm = {
   newapiUserId: '',
   accessToken: '',
   modelsDevSlug: '',
+  dailyCostLimitUsd: '',
+  monthlyCostLimitUsd: '',
   blackGroupMatch: '',
   syncEnabled: true,
   syncIntervalMinutes: 60,
+}
+
+/** Blank / unparseable input means "no limit", never zero. */
+function parseLimit(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const n = parseFloat(trimmed)
+  if (!Number.isFinite(n) || n < 0) return null
+  return n
+}
+
+function formatUsd(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—'
+  return `$${v.toFixed(4)}`
+}
+
+function formatResetIn(iso: string | undefined): string {
+  if (!iso) return '—'
+  const ms = new Date(iso).getTime() - Date.now()
+  if (!Number.isFinite(ms) || ms <= 0) return 'now'
+  const hours = Math.floor(ms / 3_600_000)
+  const minutes = Math.floor((ms % 3_600_000) / 60_000)
+  if (hours >= 24) return `${Math.floor(hours / 24)}d ${hours % 24}h`
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
 }
 
 function formatPrice(v: number | null | undefined): string {
@@ -222,6 +250,11 @@ export default function Providers() {
       newapiUserId: String(provider.newApiUserId ?? ''),
       accessToken: provider.accessToken ?? '',
       modelsDevSlug: provider.modelsDevSlug ?? '',
+      // Empty string is the UI spelling of "unlimited".
+      dailyCostLimitUsd: provider.dailyCostLimitUsd === null || provider.dailyCostLimitUsd === undefined
+        ? '' : String(provider.dailyCostLimitUsd),
+      monthlyCostLimitUsd: provider.monthlyCostLimitUsd === null || provider.monthlyCostLimitUsd === undefined
+        ? '' : String(provider.monthlyCostLimitUsd),
       blackGroupMatch: (provider.blackGroupMatch ?? []).join(', '),
       syncEnabled: provider.syncEnabled ?? true,
       syncIntervalMinutes: provider.syncIntervalMinutes ?? 60,
@@ -251,6 +284,10 @@ export default function Providers() {
         syncEnabled: form.syncEnabled,
         syncIntervalMinutes: form.syncIntervalMinutes,
       }
+      // Always sent — unlike a secret, a blank Cost Limit is a real value
+      // ("unlimited") and must be able to clear a previously set one.
+      payload.dailyCostLimitUsd = parseLimit(form.dailyCostLimitUsd)
+      payload.monthlyCostLimitUsd = parseLimit(form.monthlyCostLimitUsd)
       if (form.apiKey) payload.apiKey = form.apiKey
       if (form.type !== 'newapi') payload.modelsDevSlug = form.modelsDevSlug || null
       if (form.type === 'newapi' && form.newapiUserId) payload.newApiUserId = Number(form.newapiUserId)
@@ -345,6 +382,7 @@ export default function Providers() {
                 <th>Type</th>
                 <th>Endpoint</th>
                 <th>Models</th>
+                <th>Spend / Limit</th>
                 <th>Last Sync</th>
                 <th>Actions</th>
               </tr>
@@ -545,6 +583,40 @@ export default function Providers() {
                 />
               </div>
 
+              <div className="form-group">
+                <label>
+                  Daily Cost Limit (USD)
+                  <span
+                    className="tip-icon"
+                    data-tip="该 Provider 每个 UTC 自然日的硬性支出上限，超过后该 Provider 的所有模型返回 503。留空 = 不限制"
+                  >ⓘ</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.dailyCostLimitUsd}
+                  onChange={(e) => updateField('dailyCostLimitUsd', e.target.value)}
+                  placeholder="Leave blank for no limit"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  Monthly Cost Limit (USD)
+                  <span
+                    className="tip-icon"
+                    data-tip="该 Provider 每个 UTC 自然月的硬性支出上限，超过后该 Provider 的所有模型返回 503。留空 = 不限制"
+                  >ⓘ</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.monthlyCostLimitUsd}
+                  onChange={(e) => updateField('monthlyCostLimitUsd', e.target.value)}
+                  placeholder="Leave blank for no limit"
+                />
+              </div>
+
               {form.type === 'newapi' && (
                 <>
                   <div className="form-group">
@@ -636,6 +708,53 @@ interface ProviderRowProps {
   formatDate: (dateStr?: string | null) => string
 }
 
+/**
+ * Per-Provider Spend readout. The effective limit is shown alongside the
+ * configured one whenever they differ, because the gap is what the operator
+ * would otherwise be unable to explain: headroom withheld for in-flight
+ * requests whose cost is not known yet.
+ */
+function SpendCell({ provider: p }: { provider: Provider }) {
+  const spend = p.spend
+  if (!spend) return <span style={{ color: 'var(--text-muted)' }}>—</span>
+
+  const rows: Array<{ label: string; spent: number; limit: number | null; effective: number | null; resetAt: string }> = [
+    { label: 'Today', spent: spend.daily, limit: p.dailyCostLimitUsd, effective: spend.effectiveDailyLimitUsd, resetAt: spend.dailyResetAt },
+    { label: 'Month', spent: spend.monthly, limit: p.monthlyCostLimitUsd, effective: spend.effectiveMonthlyLimitUsd, resetAt: spend.monthlyResetAt },
+  ]
+
+  return (
+    <div>
+      {rows.map((r) => {
+        const over = r.effective !== null && r.spent >= r.effective
+        const reserved = r.limit !== null && r.effective !== null && r.effective < r.limit
+        return (
+          <div key={r.label} style={{ whiteSpace: 'nowrap' }}>
+            <span style={{ color: 'var(--text-muted)' }}>{r.label} </span>
+            <strong style={{ color: over ? 'var(--accent-red, #e74c3c)' : undefined }}>{formatUsd(r.spent)}</strong>
+            {r.limit === null ? (
+              <span style={{ color: 'var(--text-muted)' }}> / no limit</span>
+            ) : (
+              <>
+                <span style={{ color: 'var(--text-muted)' }}> / {formatUsd(r.effective)}</span>
+                {reserved && (
+                  <span
+                    style={{ color: 'var(--text-muted)' }}
+                    title={`Configured limit ${formatUsd(r.limit)}; ${spend.inFlight} in-flight request(s) reserve ${formatUsd(r.limit - (r.effective ?? 0))} at ${spend.reserveOutputTokens} output tokens each`}
+                  >
+                    {' '}(of {formatUsd(r.limit)})
+                  </span>
+                )}
+                <span style={{ color: 'var(--text-muted)' }}> · resets in {formatResetIn(r.resetAt)}</span>
+              </>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function ProviderRow({
   provider: p, isExpanded, modelCount, deployments, expandedGroups, togglingBlacklist,
   syncing, syncResultMessage,
@@ -662,6 +781,9 @@ function ProviderRow({
           {p.endpoint}
         </td>
         <td>{modelCount}</td>
+        <td style={{ fontSize: '0.8rem', lineHeight: 1.5 }}>
+          <SpendCell provider={p} />
+        </td>
         <td>{formatDate(p.lastSyncAt)}</td>
         <td onClick={(e) => e.stopPropagation()}>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -678,7 +800,7 @@ function ProviderRow({
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={6} style={{ padding: 0 }}>
+          <td colSpan={7} style={{ padding: 0 }}>
             <div className="provider-panel">
               {deployments.length === 0 ? (
                 <div style={{ padding: '1rem', color: 'var(--text-muted)', textAlign: 'center' }}>

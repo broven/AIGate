@@ -1,4 +1,4 @@
-import type { UniversalRequest, UniversalMessage, ContentPart, ToolCall, ToolDefinition } from '@aigate/shared'
+import type { UniversalRequest, UniversalMessage, ContentPart, ToolCall, ToolDefinition, UniversalUsage } from '@aigate/shared'
 import { nanoid } from '../../utils'
 
 export const STRUCTURED_OUTPUT_SENTINEL = '__aigate_structured_output__'
@@ -157,7 +157,7 @@ export function formatOpenAIResponse(
   content: string | ContentPart[],
   finishReason: string,
   toolCalls?: ToolCall[],
-  usage?: { inputTokens: number; outputTokens: number },
+  usage?: UniversalUsage,
 ) {
   const message: Record<string, unknown> = {
     role: 'assistant',
@@ -196,13 +196,34 @@ export function formatOpenAIResponse(
         finish_reason: isStructuredOutput ? 'stop' : (finishMap[finishReason] || 'stop'),
       },
     ],
-    usage: usage
-      ? {
-          prompt_tokens: usage.inputTokens,
-          completion_tokens: usage.outputTokens,
-          total_tokens: usage.inputTokens + usage.outputTokens,
-        }
-      : undefined,
+    usage: usage ? toOpenAIUsage(usage) : undefined,
+  }
+}
+
+/**
+ * `UniversalUsage` holds DISJOINT billing buckets, but the OpenAI wire format
+ * reports totals that contain their sub-counts. Re-add them here, and surface
+ * the breakdown in the detail blocks, so a client is told exactly what the
+ * upstream reported rather than the billing-side remainder.
+ */
+function toOpenAIUsage(usage: UniversalUsage) {
+  const cached = usage.cachedInputTokens ?? 0
+  const cacheWrite = usage.cacheWriteTokens ?? 0
+  const reasoning = usage.reasoningTokens ?? 0
+
+  const promptTokens = usage.inputTokens + cached + cacheWrite
+  const completionTokens = usage.outputTokens + reasoning
+
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    ...(cached > 0 || cacheWrite > 0
+      ? { prompt_tokens_details: { cached_tokens: cached } }
+      : {}),
+    ...(reasoning > 0
+      ? { completion_tokens_details: { reasoning_tokens: reasoning } }
+      : {}),
   }
 }
 

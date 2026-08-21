@@ -241,6 +241,39 @@ const migrations: Migration[] = [
       } catch { /* column already exists */ }
     },
   },
+  {
+    version: 6,
+    description: 'Cost accuracy columns + provider cost limits and spend tracking',
+    up(db) {
+      const stmts = [
+        // A4 — billing dimensions the cost formula now charges for.
+        'ALTER TABLE request_logs ADD COLUMN cached_input_tokens INTEGER',
+        'ALTER TABLE request_logs ADD COLUMN cache_write_tokens INTEGER',
+        'ALTER TABLE request_logs ADD COLUMN reasoning_tokens INTEGER',
+        'ALTER TABLE request_logs ADD COLUMN usage_missing INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE model_deployments ADD COLUMN price_cache_read REAL',
+        'ALTER TABLE model_deployments ADD COLUMN price_cache_write REAL',
+        'ALTER TABLE model_deployments ADD COLUMN price_per_call REAL',
+        // B1 — Provider-level Cost Limit. null means unlimited.
+        'ALTER TABLE providers ADD COLUMN daily_cost_limit_usd REAL',
+        'ALTER TABLE providers ADD COLUMN monthly_cost_limit_usd REAL',
+      ]
+      for (const sql of stmts) {
+        try { db.exec(sql) } catch { /* already applied */ }
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS provider_daily_spend (
+          provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+          utc_date TEXT NOT NULL,
+          cost_usd REAL NOT NULL DEFAULT 0,
+          PRIMARY KEY (provider_id, utc_date)
+        );
+      `)
+      // Historical daily_usage rows are deliberately left uncorrected — see
+      // docs/adr/0003. Spend tracking starts from zero on this table instead.
+    },
+  },
 ]
 
 // Run pending migrations

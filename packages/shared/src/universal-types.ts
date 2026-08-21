@@ -54,10 +54,25 @@ export interface UniversalResponse {
   content: string | ContentPart[]
   finishReason: 'stop' | 'length' | 'tool_calls' | 'error'
   toolCalls?: ToolCall[]
-  usage: {
-    inputTokens: number
-    outputTokens: number
-  }
+  usage: UniversalUsage
+}
+
+/**
+ * Normalized token accounting.
+ *
+ * `inputTokens` is always the **uncached** prompt token count: providers that
+ * report cache hits inside their prompt total (OpenAI, Gemini) have them
+ * subtracted here and reported separately, so the fields never double-count.
+ */
+export interface UniversalUsage {
+  inputTokens: number
+  outputTokens: number
+  /** Prompt tokens served from a provider-side cache (billed at the cache-read rate). */
+  cachedInputTokens?: number
+  /** Prompt tokens written into a provider-side cache (billed at the cache-write rate). */
+  cacheWriteTokens?: number
+  /** Reasoning / thinking tokens not included in `outputTokens` (billed at the output rate). */
+  reasoningTokens?: number
 }
 
 // Router Decision
@@ -68,7 +83,7 @@ export interface RouteAttempt {
   price: number
   priceInput: number
   priceOutput: number
-  status: 'success' | 'failed' | 'skipped_cooldown'
+  status: 'success' | 'failed' | 'skipped_cooldown' | 'skipped_no_price' | 'skipped_cost_limit'
   error?: string
   latencyMs?: number
 }
@@ -83,6 +98,11 @@ export interface RequestLog {
   totalLatencyMs: number
   inputTokens: number | null
   outputTokens: number | null
+  cachedInputTokens: number | null
+  cacheWriteTokens: number | null
+  reasoningTokens: number | null
+  /** True when the upstream never reported usage — distinguishes "unknown" from "genuinely free". */
+  usageMissing: boolean
   cost: number | null
   savedVsDirect: number | null
   success: boolean

@@ -78,20 +78,27 @@ function normalizeYunwuPricing(raw: YunwuPricingResponse): NewAPIPricingResponse
     const enableGroups = modelGroupMembership.get(modelName) || []
     const completionRatio = model_completion_ratio[modelName] ?? 1
 
-    // Find the best model_price from model_group entries
-    let modelPrice = 0
+    // Find the best price from model_group entries. `priceType` is yunwu's
+    // spelling of NewAPI's `quota_type`: 1 = flat charge per request, anything
+    // else = a per-token multiplier. Collapsing both into `model_price` (as
+    // this used to) billed ratio-priced models as if they were per-call.
+    let price = 0
+    let priceType = 0
     for (const groupName of enableGroups) {
       const grp = model_group[groupName]
       if (grp?.ModelPrice?.[modelName]) {
-        modelPrice = grp.ModelPrice[modelName].price
+        price = grp.ModelPrice[modelName].price
+        priceType = grp.ModelPrice[modelName].priceType ?? 0
         break
       }
     }
+    const perCall = priceType === PER_CALL_QUOTA_TYPE
 
     data.push({
       model_name: modelName,
-      model_ratio: 0,
-      model_price: modelPrice,
+      model_ratio: perCall ? 0 : price,
+      model_price: perCall ? price : 0,
+      quota_type: priceType,
       completion_ratio: completionRatio,
       enable_groups: enableGroups,
     })
@@ -114,7 +121,14 @@ interface NewAPIToken {
   status: number // 1 = active
 }
 
-const BASE_FACTOR = 2 // NewAPI base factor (from axonhub-bridge)
+// NewAPI expresses per-token pricing as a multiplier where 1 ratio unit is
+// $0.002/1K tokens, i.e. $2 per 1M tokens. That $2 is this factor — it is a
+// unit conversion for RATIO pricing only and must never be applied to
+// `model_price`, which is already a dollar amount.
+const BASE_FACTOR = 2
+
+/** NewAPI `quota_type`: 1 means "charge a flat amount per request". */
+const PER_CALL_QUOTA_TYPE = 1
 
 export interface SyncedModel {
   canonical: string
@@ -123,6 +137,12 @@ export interface SyncedModel {
   apiKey: string | null // Per-group token
   priceInput: number | null
   priceOutput: number | null
+  /** $/1M cached prompt tokens. null = no distinct cache rate known. */
+  priceCacheRead: number | null
+  /** $/1M cache-write tokens. null = no distinct cache rate known. */
+  priceCacheWrite: number | null
+  /** Flat $ per request. When set it replaces the per-token rates entirely. */
+  pricePerCall: number | null
   priceSource: 'provider_api' | 'models_dev' | 'unknown'
 }
 
@@ -204,6 +224,7 @@ export async function syncNewAPIProvider(
   blackGroupMatch: string[],
   accessToken?: string,
   newApiUserId?: number,
+  modelsDevSlug?: string,
 ): Promise<{ models: SyncedModel[]; errors: string[] }> {
   const errors: string[] = []
   const models: SyncedModel[] = []
@@ -293,12 +314,17 @@ export async function syncNewAPIProvider(
 
         let priceInput: number | null = null
         let priceOutput: number | null = null
+        let pricePerCall: number | null = null
+        let priceCacheRead: number | null = null
+        let priceCacheWrite: number | null = null
         let priceSource: 'provider_api' | 'models_dev' | 'unknown' = 'unknown'
 
-        if (entry.model_price > 0) {
-          const basePrice = entry.model_price * grpRatio * BASE_FACTOR * costMultiplier
-          priceInput = basePrice
-          priceOutput = basePrice * (entry.completion_ratio ?? 1)
+        if (entry.quota_type === PER_CALL_QUOTA_TYPE && entry.model_price > 0) {
+          // Flat charge per request. `model_price` is already dollars, so it
+          // gets neither the $2/1M ratio conversion nor completion_ratio (there
+          // is no token split to weight) — applying either overcharged by 2x
+          // and upward. Only the Cost Multiplier correction applies.
+          pricePerCall = entry.model_price * grpRatio * costMultiplier
           priceSource = 'provider_api'
         } else if (entry.model_ratio > 0) {
           // model_ratio based pricing: ratio * group_ratio * BASE_FACTOR
@@ -311,10 +337,15 @@ export async function syncNewAPIProvider(
           priceOutput = 0
           priceSource = 'provider_api'
         } else {
-          const devPrice = lookupPrice(modelsDevPricing, entry.model_name)
+          // Only possible with an explicit models.dev slug: without a provider
+          // context a bare model id resolves to whichever provider happened to
+          // list it, which is a wrong price dressed up as a known one.
+          const devPrice = lookupPrice(modelsDevPricing, entry.model_name, modelsDevSlug)
           if (devPrice) {
             priceInput = devPrice.input * costMultiplier
             priceOutput = devPrice.output * costMultiplier
+            priceCacheRead = devPrice.cacheRead !== null ? devPrice.cacheRead * costMultiplier : null
+            priceCacheWrite = devPrice.cacheWrite !== null ? devPrice.cacheWrite * costMultiplier : null
             priceSource = 'models_dev'
           }
         }
@@ -326,6 +357,9 @@ export async function syncNewAPIProvider(
           apiKey: `sk-${groupToken}`,
           priceInput: priceInput !== null ? Math.round(priceInput * 1e5) / 1e5 : null,
           priceOutput: priceOutput !== null ? Math.round(priceOutput * 1e5) / 1e5 : null,
+          priceCacheRead: priceCacheRead !== null ? Math.round(priceCacheRead * 1e5) / 1e5 : null,
+          priceCacheWrite: priceCacheWrite !== null ? Math.round(priceCacheWrite * 1e5) / 1e5 : null,
+          pricePerCall,
           priceSource,
         })
       }

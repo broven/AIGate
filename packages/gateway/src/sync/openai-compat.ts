@@ -65,6 +65,9 @@ export async function syncOpenAICompatibleProvider(
           apiKey: null,
           priceInput: m.input * costMultiplier,
           priceOutput: m.output * costMultiplier,
+          priceCacheRead: m.cacheRead !== null ? m.cacheRead * costMultiplier : null,
+          priceCacheWrite: m.cacheWrite !== null ? m.cacheWrite * costMultiplier : null,
+          pricePerCall: null,
           priceSource: 'models_dev',
         })
       }
@@ -80,10 +83,27 @@ export async function syncOpenAICompatibleProvider(
       const canonical = canonicalize(model.id)
       let priceInput: number | null = null
       let priceOutput: number | null = null
+      let priceCacheRead: number | null = null
+      let priceCacheWrite: number | null = null
       let priceSource: 'provider_api' | 'models_dev' | 'unknown' = 'unknown'
 
-      // Try OpenRouter-style pricing ($/token as string)
-      if (model.pricing?.prompt && model.pricing?.completion) {
+      // The model LIST and the model PRICES are independent sources. An
+      // endpoint that answers /v1/models says nothing about whether it also
+      // publishes prices — vLLM, Ollama and Azure all list models and none of
+      // them price them. So a configured models.dev slug is authoritative for
+      // pricing here, even though the list came from the endpoint itself.
+      const devPrice = lookupPrice(modelsDevPricing, model.id, modelsDevSlug)
+      if (devPrice) {
+        priceInput = devPrice.input * costMultiplier
+        priceOutput = devPrice.output * costMultiplier
+        priceCacheRead = devPrice.cacheRead !== null ? devPrice.cacheRead * costMultiplier : null
+        priceCacheWrite = devPrice.cacheWrite !== null ? devPrice.cacheWrite * costMultiplier : null
+        priceSource = 'models_dev'
+      }
+
+      // OpenRouter-style pricing ($/token as string), used when the slug did
+      // not resolve this particular model.
+      if (priceSource === 'unknown' && model.pricing?.prompt && model.pricing?.completion) {
         const promptPrice = parseFloat(model.pricing.prompt)
         const completionPrice = parseFloat(model.pricing.completion)
         if (!isNaN(promptPrice) && !isNaN(completionPrice)) {
@@ -94,16 +114,6 @@ export async function syncOpenAICompatibleProvider(
         }
       }
 
-      // Fallback to models.dev
-      if (priceSource === 'unknown') {
-        const devPrice = lookupPrice(modelsDevPricing, model.id)
-        if (devPrice) {
-          priceInput = devPrice.input * costMultiplier
-          priceOutput = devPrice.output * costMultiplier
-          priceSource = 'models_dev'
-        }
-      }
-
       models.push({
         canonical,
         upstream: model.id,
@@ -111,6 +121,9 @@ export async function syncOpenAICompatibleProvider(
         apiKey: null, // OpenAI-compatible uses provider-level key
         priceInput,
         priceOutput,
+        priceCacheRead,
+        priceCacheWrite,
+        pricePerCall: null,
         priceSource,
       })
     }

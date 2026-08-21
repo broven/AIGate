@@ -32,19 +32,42 @@ app.get('/stats', async (c) => {
     .select({ count: count() })
     .from(schema.providers)
 
-  const [failedToday] = await db
-    .select({ count: count() })
-    .from(schema.requestLogs)
-    .where(
-      and(
-        eq(schema.requestLogs.success, false),
-        gte(schema.requestLogs.createdAt, today),
-      ),
-    )
+  // Success rate is computed entirely from `request_logs`: it is the only table
+  // with a row for EVERY request, including the ones blocked by a Cost Limit and
+  // the ones where every provider failed. `daily_usage.request_count` only counts
+  // requests that reached a provider, so mixing the two put failures the metered
+  // side had never seen into the numerator — enough of them and the rate went
+  // negative.
+  //
+  // A request whose attempts are all Cost Limit refusals never reached an
+  // upstream. That is a deliberate policy decision, not an error, so it does not
+  // count against the rate — but it stays in the denominator and is reported on
+  // its own as `blockedByCostLimit`. `request_logs` has no column for it; the
+  // logged attempts are the only record, hence the match on the serialized status.
+  const blockedByCostLimit = sql`${schema.requestLogs.success} = 0
+    AND ${schema.requestLogs.attempts} LIKE '%"status":"skipped_cost_limit"%'
+    AND ${schema.requestLogs.attempts} NOT LIKE '%"status":"failed"%'`
 
+  const [todayRequests] = await db
+    .select({
+      total: count(),
+      failed: sql<number>`coalesce(sum(case when ${schema.requestLogs.success} = 0 then 1 else 0 end), 0)`,
+      blocked: sql<number>`coalesce(sum(case when ${blockedByCostLimit} then 1 else 0 end), 0)`,
+    })
+    .from(schema.requestLogs)
+    .where(gte(schema.requestLogs.createdAt, today))
+
+  const loggedRequests = todayRequests?.total ?? 0
+  const blockedRequests = todayRequests?.blocked ?? 0
+  // Failures that actually went wrong: total failures minus the policy blocks.
+  const failedRequests = Math.max(0, (todayRequests?.failed ?? 0) - blockedRequests)
+
+  // Clamped regardless of what the two counts say: a rate outside 0..100 is a
+  // bug report shown to the operator as if it were data. A day with no requests
+  // reports 100, not NaN.
   const successRate =
-    todayStats!.requests > 0
-      ? ((todayStats!.requests - (failedToday?.count ?? 0)) / todayStats!.requests) * 100
+    loggedRequests > 0
+      ? Math.min(100, Math.max(0, ((loggedRequests - failedRequests) / loggedRequests) * 100))
       : 100
 
   return c.json({
@@ -55,6 +78,12 @@ app.get('/stats', async (c) => {
       inputTokens: todayStats!.inputTokens,
       outputTokens: todayStats!.outputTokens,
       successRate,
+      /** Every request logged today, including blocked and all-providers-failed ones. */
+      loggedRequests,
+      /** Requests that reached a provider and still failed. */
+      failedRequests,
+      /** Requests refused up front by a Provider Cost Limit — policy, not error. */
+      blockedByCostLimit: blockedRequests,
     },
     total: {
       requests: totalStats!.requests,
@@ -158,7 +187,10 @@ app.get('/cooldowns', (c) => {
 
 // POST /api/cooldowns/:deploymentId/reset — clear a specific cooldown
 app.post('/cooldowns/:deploymentId/reset', (c) => {
-  const deploymentId = decodeURIComponent(c.req.param('deploymentId'))
+  // Hono already percent-decodes route params; decoding a second time would
+  // corrupt a deployment id that legitimately contains '%' (and throw on a
+  // malformed sequence). Cloudflare ids arrive here as `cf-@cf/meta/...`.
+  const deploymentId = c.req.param('deploymentId')
   clearCooldown(deploymentId)
   return c.json({ ok: true })
 })
