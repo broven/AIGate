@@ -133,5 +133,5 @@ jobs:
 
       - name: Trigger deploy webhook
         run: |
-          curl -sf "https://admin.paas.randysoft.link/api/v1/deploy?uuid=f11ml6scf5d9x5x7ki6neq7t&force=true" \
+          curl -sf "https://metainfra.top/api/v1/deploy?uuid=kvxrbtjqmnuzbqc0bg1shaww&force=true" \
             --header "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
